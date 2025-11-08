@@ -46,18 +46,28 @@ class ServiceManager:
 
     def __init__(self):
         self.processes = []
+        self.log_files = []  # Track log files to close later
 
     def start_service(self, script_name, service_name):
         """Start a service subprocess"""
         print(f"Starting {service_name}...")
 
         try:
+            # On Windows, use CREATE_NO_WINDOW and DETACHED_PROCESS
+            # to allow the server to run independently
+            if sys.platform == 'win32':
+                CREATE_NO_WINDOW = 0x08000000
+                DETACHED_PROCESS = 0x00000008
+                flags = CREATE_NO_WINDOW | DETACHED_PROCESS
+            else:
+                flags = 0
+
             process = subprocess.Popen(
-                [sys.executable, script_name],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1
+                [sys.executable, "-u", script_name],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=flags
             )
 
             self.processes.append((service_name, process))
@@ -71,14 +81,18 @@ class ServiceManager:
     def wait_for_service(self, url, timeout=30):
         """Wait for a service to become available"""
         start_time = time.time()
+        attempt = 0
 
         while time.time() - start_time < timeout:
             try:
-                response = requests.get(url, timeout=2)
+                attempt += 1
+                # Increased from 2 to 10 seconds to accommodate LLM Server's Ollama health check (5s timeout)
+                response = requests.get(url, timeout=10)
+                print(f"  Attempt {attempt}: HTTP {response.status_code}")
                 if response.status_code == 200:
                     return True
-            except:
-                pass
+            except Exception as e:
+                print(f"  Attempt {attempt}: Connection failed - {type(e).__name__}")
 
             time.sleep(1)
 
@@ -96,6 +110,13 @@ class ServiceManager:
             except:
                 process.kill()
                 print(f"{CHECK} {service_name} killed")
+
+        # Close log files
+        for log_file in self.log_files:
+            try:
+                log_file.close()
+            except:
+                pass
 
 
 def main():
@@ -128,6 +149,13 @@ def main():
         print(f"{CHECK} CEREBRUM is running")
         print("")
 
+        # Clear old port from config before starting LLM Server
+        # This prevents race condition with stale port values
+        if 'llm_server_port' in config:
+            del config['llm_server_port']
+            with open('config.json', 'w') as f:
+                json.dump(config, f, indent=2)
+
         # Start LLM Server
         llm_process = manager.start_service('llm_server.py', 'LLM Server')
         if not llm_process:
@@ -143,9 +171,7 @@ def main():
             # Check if process is still running
             if llm_process.poll() is not None:
                 print(f"{CROSS} LLM Server process exited unexpectedly with code {llm_process.returncode}")
-                print("\nLLM Server output:")
-                output = llm_process.stdout.read() if llm_process.stdout else "No output available"
-                print(output)
+                print("  Check llm_server.py logs for details")
                 manager.stop_all()
                 return
 
@@ -164,19 +190,20 @@ def main():
 
         if not llm_port:
             print(f"{CROSS} LLM Server did not write port to config after 10 seconds")
-            print("\nLLM Server output:")
-            try:
-                output = llm_process.stdout.read() if llm_process.stdout else "No output available"
-                print(output)
-            except:
-                print("Could not read server output")
+            print("  Check if llm_server.py is running and has write access to config.json")
             manager.stop_all()
             return
 
+        # Give uvicorn adequate time to initialize after port selection
+        print("Giving LLM Server time to initialize uvicorn...")
+        time.sleep(6)  # Increased to 6 seconds for reliability
+
         # Wait for LLM Server
         print("Waiting for LLM Server...")
-        if not manager.wait_for_service(f"http://localhost:{llm_port}/"):
+        # Use 127.0.0.1 instead of localhost to avoid IPv6 issues
+        if not manager.wait_for_service(f"http://127.0.0.1:{llm_port}/"):
             print(f"{CROSS} LLM Server failed to start")
+            print("  Check llm_server.log for details")
             manager.stop_all()
             return
 
@@ -193,7 +220,8 @@ def main():
 
         # Wait for Middleware
         print("Waiting for Middleware...")
-        if not manager.wait_for_service(f"http://localhost:{config['middleware_port']}/api/status"):
+        # Use 127.0.0.1 instead of localhost to avoid IPv6 issues
+        if not manager.wait_for_service(f"http://127.0.0.1:{config['middleware_port']}/api/status"):
             print(f"{CROSS} Middleware failed to start")
             manager.stop_all()
             return
@@ -209,7 +237,7 @@ def main():
 
         # Start training via middleware API
         response = requests.post(
-            f"http://localhost:{config['middleware_port']}/api/training/start",
+            f"http://127.0.0.1:{config['middleware_port']}/api/training/start",
             json={
                 "max_exchanges": 100,
                 "delay": config['conversation_delay'],
@@ -228,7 +256,7 @@ def main():
                 time.sleep(5)
 
                 status_response = requests.get(
-                    f"http://localhost:{config['middleware_port']}/api/training/status"
+                    f"http://127.0.0.1:{config['middleware_port']}/api/training/status"
                 )
 
                 if status_response.status_code == 200:
