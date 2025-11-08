@@ -1,0 +1,22 @@
+{
+  "cerebrum_url": "http://localhost:8000",
+  "llm_server_port_range": [8030, 8035],
+  "middleware_port": 8032,
+  "ollama_url": "http://localhost:11434",
+  "ollama_model": "gemma2:2b",
+  "conversation_delay": 2.0,
+  "topic_switch_interval": 10,
+  "max_conversation_history": 10,
+  "conversation_topics": [
+    "What are your thoughts on consciousness and self-awareness?",
+    "How do you think learning and memory work?",
+    "What interests you about the world around you?",
+    "Can you tell me about your experiences so far?",
+    "What questions do you have about yourself or your thinking?",
+    "How do you feel about continuous autonomous thinking?",
+    "What patterns have you noticed in our conversations?",
+    "What would you like to understand better?",
+    "How do you decide what to focus your attention on?",
+    "What are your thoughts on language and communication?"
+  ]
+}
