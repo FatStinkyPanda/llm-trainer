@@ -129,11 +129,24 @@ def main():
         if not llm_process:
             return
 
-        time.sleep(3)  # Give it time to initialize
+        time.sleep(3)  # Give it time to initialize and write port to config
+
+        # Reload config to get the selected port
+        print("Reloading config to get selected LLM Server port...")
+        with open('config.json', 'r') as f:
+            config = json.load(f)
+
+        llm_port = config.get('llm_server_port')
+        if not llm_port:
+            print("✗ LLM Server did not write port to config")
+            manager.stop_all()
+            return
+
+        print(f"LLM Server selected port: {llm_port}")
 
         # Wait for LLM Server
         print("Waiting for LLM Server...")
-        if not manager.wait_for_service(f"http://localhost:{config['llm_server_port']}/"):
+        if not manager.wait_for_service(f"http://localhost:{llm_port}/"):
             print("✗ LLM Server failed to start")
             manager.stop_all()
             return
