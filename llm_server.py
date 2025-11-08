@@ -262,7 +262,7 @@ def run_server(host: str = "0.0.0.0", port: int = None):
     port = port or LLM_SERVER_PORT
 
     print("="*70)
-    print("🤖 LLM Server (Isolated from CEREBRUM)")
+    print("LLM Server (Isolated from CEREBRUM)")
     print("="*70)
     print(f"Port Range: {port_range[0]}-{port_range[1]}")
     print(f"Selected Port: {port}")
