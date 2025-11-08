@@ -129,21 +129,45 @@ def main():
         if not llm_process:
             return
 
-        time.sleep(3)  # Give it time to initialize and write port to config
+        # Wait for LLM Server to write port to config (with retry)
+        print("Waiting for LLM Server to initialize and write port to config...")
+        llm_port = None
 
-        # Reload config to get the selected port
-        print("Reloading config to get selected LLM Server port...")
-        with open('config.json', 'r') as f:
-            updated_config = json.load(f)
-            config.update(updated_config)
+        for attempt in range(10):  # Try for up to 10 seconds
+            time.sleep(1)
 
-        llm_port = config.get('llm_server_port')
+            # Check if process is still running
+            if llm_process.poll() is not None:
+                print(f"✗ LLM Server process exited unexpectedly with code {llm_process.returncode}")
+                print("\nLLM Server output:")
+                output = llm_process.stdout.read() if llm_process.stdout else "No output available"
+                print(output)
+                manager.stop_all()
+                return
+
+            # Try to reload config
+            try:
+                with open('config.json', 'r') as f:
+                    updated_config = json.load(f)
+                    llm_port = updated_config.get('llm_server_port')
+
+                if llm_port:
+                    config.update(updated_config)
+                    print(f"✓ LLM Server selected port: {llm_port}")
+                    break
+            except Exception as e:
+                print(f"Warning: Could not read config on attempt {attempt + 1}: {e}")
+
         if not llm_port:
-            print("✗ LLM Server did not write port to config")
+            print("✗ LLM Server did not write port to config after 10 seconds")
+            print("\nLLM Server output:")
+            try:
+                output = llm_process.stdout.read() if llm_process.stdout else "No output available"
+                print(output)
+            except:
+                print("Could not read server output")
             manager.stop_all()
             return
-
-        print(f"LLM Server selected port: {llm_port}")
 
         # Wait for LLM Server
         print("Waiting for LLM Server...")
