@@ -134,7 +134,8 @@ def main():
         # Reload config to get the selected port
         print("Reloading config to get selected LLM Server port...")
         with open('config.json', 'r') as f:
-            config = json.load(f)
+            updated_config = json.load(f)
+            config.update(updated_config)
 
         llm_port = config.get('llm_server_port')
         if not llm_port:
