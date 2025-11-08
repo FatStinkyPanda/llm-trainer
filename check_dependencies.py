@@ -9,6 +9,10 @@ import subprocess
 import sys
 import importlib.util
 
+# Windows-safe check and cross marks
+CHECK = "[OK]"
+CROSS = "[X]"
+
 
 def is_package_installed(package_name: str) -> bool:
     """
@@ -56,14 +60,14 @@ def install_package(package_name: str) -> bool:
         )
 
         if result.returncode == 0:
-            print("✓")
+            print(CHECK)
             return True
         else:
-            print(f"✗\n  Error: {result.stderr}")
+            print(f"{CROSS}\n  Error: {result.stderr}")
             return False
 
     except Exception as e:
-        print(f"✗\n  Error: {e}")
+        print(f"{CROSS}\n  Error: {e}")
         return False
 
 
@@ -87,7 +91,7 @@ def check_and_install_dependencies(requirements_file: str = 'requirements.txt', 
         with open(requirements_file, 'r') as f:
             requirements = f.readlines()
     except FileNotFoundError:
-        print(f"✗ Requirements file not found: {requirements_file}")
+        print(f"{CROSS} Requirements file not found: {requirements_file}")
         return False
 
     # Parse requirements (handle version specifiers)
@@ -109,24 +113,24 @@ def check_and_install_dependencies(requirements_file: str = 'requirements.txt', 
 
     for package_name, full_spec in required_packages:
         if is_package_installed(package_name):
-            print(f"✓ {package_name}")
+            print(f"{CHECK} {package_name}")
             installed_packages.append(package_name)
         else:
-            print(f"✗ {package_name} (not installed)")
+            print(f"{CROSS} {package_name} (not installed)")
             missing_packages.append(full_spec)
 
     print("")
 
     # If all installed, we're done
     if not missing_packages:
-        print("✓ All dependencies satisfied!")
+        print(f"{CHECK} All dependencies satisfied!")
         print("="*70)
         print("")
         return True
 
     # Handle missing packages
     if not auto_install:
-        print(f"✗ Missing {len(missing_packages)} package(s)")
+        print(f"{CROSS} Missing {len(missing_packages)} package(s)")
         print("  Run: pip install -r requirements.txt")
         print("="*70)
         print("")
@@ -145,7 +149,7 @@ def check_and_install_dependencies(requirements_file: str = 'requirements.txt', 
 
     # Report results
     if failed_packages:
-        print(f"✗ Failed to install {len(failed_packages)} package(s):")
+        print(f"{CROSS} Failed to install {len(failed_packages)} package(s):")
         for pkg in failed_packages:
             print(f"  - {pkg}")
         print("")
@@ -155,7 +159,7 @@ def check_and_install_dependencies(requirements_file: str = 'requirements.txt', 
         print("")
         return False
     else:
-        print("✓ All dependencies installed successfully!")
+        print(f"{CHECK} All dependencies installed successfully!")
         print("="*70)
         print("")
         return True

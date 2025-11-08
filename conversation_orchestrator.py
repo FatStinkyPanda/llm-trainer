@@ -11,11 +11,15 @@ NO CEREBRUM IMPORTS. NO SHARED CODE.
 
 import sys
 
+# Windows-safe check and cross marks
+CHECK = "[OK]"
+CROSS = "[X]"
+
 # Check dependencies on startup
 try:
     from check_dependencies import check_and_install_dependencies
     if not check_and_install_dependencies(auto_install=True):
-        print("✗ Failed to install dependencies. Exiting.")
+        print(f"{CROSS} Failed to install dependencies. Exiting.")
         sys.exit(1)
 except ImportError:
     print("Warning: Dependency checker not available")
@@ -41,27 +45,27 @@ def check_services(config):
     try:
         response = requests.get(f"http://localhost:{config['middleware_port']}/api/status", timeout=5)
         if response.status_code == 200:
-            print("✓ Middleware is running")
+            print(f"{CHECK} Middleware is running")
             status = response.json()
 
             if status.get('cerebrum_connected'):
-                print("✓ CEREBRUM is accessible")
+                print(f"{CHECK} CEREBRUM is accessible")
             else:
-                print("✗ CEREBRUM is not accessible")
+                print(f"{CROSS} CEREBRUM is not accessible")
                 return False
 
             if status.get('llm_connected'):
-                print("✓ LLM Server is accessible")
+                print(f"{CHECK} LLM Server is accessible")
             else:
-                print("✗ LLM Server is not accessible")
+                print(f"{CROSS} LLM Server is not accessible")
                 return False
 
             return True
         else:
-            print("✗ Middleware returned error")
+            print(f"{CROSS} Middleware returned error")
             return False
     except:
-        print("✗ Cannot connect to middleware")
+        print(f"{CROSS} Cannot connect to middleware")
         print(f"  Make sure middleware is running: python middleware.py")
         return False
 
@@ -85,7 +89,7 @@ def start_training(config, args):
 
         if response.status_code == 200:
             data = response.json()
-            print(f"✓ Training started!")
+            print(f"{CHECK} Training started!")
             print(f"  Max exchanges: {args.exchanges}")
             print(f"  Delay: {args.delay}s")
             print(f"  Topic switch: every {args.topic_interval} messages")
@@ -108,7 +112,7 @@ def start_training(config, args):
                         status = status_response.json()
 
                         if not status.get('running'):
-                            print("\n✓ Training completed!")
+                            print("\n{CHECK} Training completed!")
                             print(f"  Total exchanges: {status.get('exchanges_completed')}")
                             break
 
@@ -120,13 +124,13 @@ def start_training(config, args):
                 print("To stop training: python conversation_orchestrator.py --stop")
 
         elif response.status_code == 400:
-            print("✗ Training already running")
+            print(f"{CROSS} Training already running")
             print("  Stop it first: python conversation_orchestrator.py --stop")
         else:
-            print(f"✗ Error: {response.text}")
+            print(f"{CROSS} Error: {response.text}")
 
     except Exception as e:
-        print(f"✗ Error starting training: {e}")
+        print(f"{CROSS} Error starting training: {e}")
 
 
 def stop_training(config):
@@ -143,15 +147,15 @@ def stop_training(config):
 
         if response.status_code == 200:
             data = response.json()
-            print("✓ Training stopped")
+            print(f"{CHECK} Training stopped")
             print(f"  Exchanges completed: {data.get('exchanges_completed')}")
         elif response.status_code == 400:
-            print("✗ Training not running")
+            print(f"{CROSS} Training not running")
         else:
-            print(f"✗ Error: {response.text}")
+            print(f"{CROSS} Error: {response.text}")
 
     except Exception as e:
-        print(f"✗ Error stopping training: {e}")
+        print(f"{CROSS} Error stopping training: {e}")
 
 
 def show_status(config):
@@ -177,10 +181,10 @@ def show_status(config):
             print("="*70)
 
         else:
-            print(f"✗ Error getting status: {response.text}")
+            print(f"{CROSS} Error getting status: {response.text}")
 
     except Exception as e:
-        print(f"✗ Error: {e}")
+        print(f"{CROSS} Error: {e}")
 
 
 def show_log(config, limit):
@@ -208,10 +212,10 @@ def show_log(config, limit):
                 print("-" * 70)
 
         else:
-            print(f"✗ Error getting log: {response.text}")
+            print(f"{CROSS} Error getting log: {response.text}")
 
     except Exception as e:
-        print(f"✗ Error: {e}")
+        print(f"{CROSS} Error: {e}")
 
 
 def main():
@@ -244,7 +248,7 @@ def main():
 
     # Check services
     if not check_services(config):
-        print("\n✗ Services not ready. Please ensure:")
+        print("\n{CROSS} Services not ready. Please ensure:")
         print("  1. CEREBRUM is running (python launcher.py)")
         print("  2. LLM Server is running (python llm_server.py)")
         print("  3. Middleware is running (python middleware.py)")

@@ -12,6 +12,10 @@ import time
 import signal
 from pathlib import Path
 
+# Windows-safe check and cross marks
+CHECK = "[OK]"
+CROSS = "[X]"
+
 # Check and install dependencies FIRST (before other imports)
 try:
     from check_dependencies import check_and_install_dependencies
@@ -20,7 +24,7 @@ try:
     print("")
 
     if not check_and_install_dependencies(auto_install=True):
-        print("✗ Dependency installation failed.")
+        print(f"{CROSS} Dependency installation failed.")
         print("Please install manually: pip install -r requirements.txt")
         sys.exit(1)
 
@@ -57,11 +61,11 @@ class ServiceManager:
             )
 
             self.processes.append((service_name, process))
-            print(f"✓ {service_name} started (PID: {process.pid})")
+            print(f"{CHECK} {service_name} started (PID: {process.pid})")
             return process
 
         except Exception as e:
-            print(f"✗ Failed to start {service_name}: {e}")
+            print(f"{CROSS} Failed to start {service_name}: {e}")
             return None
 
     def wait_for_service(self, url, timeout=30):
@@ -88,10 +92,10 @@ class ServiceManager:
             try:
                 process.terminate()
                 process.wait(timeout=5)
-                print(f"✓ {service_name} stopped")
+                print(f"{CHECK} {service_name} stopped")
             except:
                 process.kill()
-                print(f"✓ {service_name} killed")
+                print(f"{CHECK} {service_name} killed")
 
 
 def main():
@@ -116,12 +120,12 @@ def main():
         # Check if CEREBRUM is running
         print("Checking CEREBRUM...")
         if not manager.wait_for_service(config['cerebrum_url'] + '/api/status', timeout=5):
-            print("✗ CEREBRUM is not running!")
+            print(f"{CROSS} CEREBRUM is not running!")
             print(f"  Please start CEREBRUM first: python launcher.py")
             print(f"  Expected at: {config['cerebrum_url']}")
             return
 
-        print("✓ CEREBRUM is running")
+        print(f"{CHECK} CEREBRUM is running")
         print("")
 
         # Start LLM Server
@@ -138,7 +142,7 @@ def main():
 
             # Check if process is still running
             if llm_process.poll() is not None:
-                print(f"✗ LLM Server process exited unexpectedly with code {llm_process.returncode}")
+                print(f"{CROSS} LLM Server process exited unexpectedly with code {llm_process.returncode}")
                 print("\nLLM Server output:")
                 output = llm_process.stdout.read() if llm_process.stdout else "No output available"
                 print(output)
@@ -153,13 +157,13 @@ def main():
 
                 if llm_port:
                     config.update(updated_config)
-                    print(f"✓ LLM Server selected port: {llm_port}")
+                    print(f"{CHECK} LLM Server selected port: {llm_port}")
                     break
             except Exception as e:
                 print(f"Warning: Could not read config on attempt {attempt + 1}: {e}")
 
         if not llm_port:
-            print("✗ LLM Server did not write port to config after 10 seconds")
+            print(f"{CROSS} LLM Server did not write port to config after 10 seconds")
             print("\nLLM Server output:")
             try:
                 output = llm_process.stdout.read() if llm_process.stdout else "No output available"
@@ -172,11 +176,11 @@ def main():
         # Wait for LLM Server
         print("Waiting for LLM Server...")
         if not manager.wait_for_service(f"http://localhost:{llm_port}/"):
-            print("✗ LLM Server failed to start")
+            print(f"{CROSS} LLM Server failed to start")
             manager.stop_all()
             return
 
-        print("✓ LLM Server ready")
+        print(f"{CHECK} LLM Server ready")
         print("")
 
         # Start Middleware
@@ -190,11 +194,11 @@ def main():
         # Wait for Middleware
         print("Waiting for Middleware...")
         if not manager.wait_for_service(f"http://localhost:{config['middleware_port']}/api/status"):
-            print("✗ Middleware failed to start")
+            print(f"{CROSS} Middleware failed to start")
             manager.stop_all()
             return
 
-        print("✓ Middleware ready")
+        print(f"{CHECK} Middleware ready")
         print("")
 
         # Start training
@@ -214,7 +218,7 @@ def main():
         )
 
         if response.status_code == 200:
-            print("✓ Training started!")
+            print(f"{CHECK} Training started!")
             print("")
             print("Monitoring progress (Ctrl+C to stop)...")
             print("")
@@ -231,7 +235,7 @@ def main():
                     status = status_response.json()
 
                     if not status.get('running'):
-                        print("\n✓ Training completed!")
+                        print("\n{CHECK} Training completed!")
                         print(f"  Total exchanges: {status.get('exchanges_completed')}")
                         break
 
@@ -242,12 +246,12 @@ def main():
                           f"Topic: {topic_short}")
 
         else:
-            print(f"✗ Failed to start training: {response.text}")
+            print(f"{CROSS} Failed to start training: {response.text}")
 
     except KeyboardInterrupt:
         print("\n\nShutdown requested by user...")
     except Exception as e:
-        print(f"\n✗ Error: {e}")
+        print(f"\n{CROSS} Error: {e}")
     finally:
         manager.stop_all()
 

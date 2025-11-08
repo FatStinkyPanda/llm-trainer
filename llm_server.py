@@ -11,11 +11,15 @@ NO CEREBRUM IMPORTS. NO SHARED CODE.
 
 import sys
 
+# Windows-safe check and cross marks
+CHECK = "[OK]"
+CROSS = "[X]"
+
 # Check dependencies on startup
 try:
     from check_dependencies import check_and_install_dependencies
     if not check_and_install_dependencies(auto_install=True):
-        print("✗ Failed to install dependencies. Exiting.")
+        print(f"{CROSS} Failed to install dependencies. Exiting.")
         sys.exit(1)
 except ImportError:
     print("Warning: Dependency checker not available")
@@ -271,9 +275,9 @@ def run_server(host: str = "0.0.0.0", port: int = None):
 
     # Test Ollama connection
     if check_ollama_connection():
-        print("✓ Ollama is running and accessible")
+        print(f"{CHECK} Ollama is running and accessible")
     else:
-        print("✗ WARNING: Cannot connect to Ollama")
+        print(f"{CROSS} WARNING: Cannot connect to Ollama")
         print(f"  Make sure Ollama is running and accessible at {config['ollama_url']}")
         print(f"  Run: ollama serve")
         print(f"  And: ollama pull {config['ollama_model']}")

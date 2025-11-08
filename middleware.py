@@ -12,11 +12,15 @@ Pure HTTP communication only.
 
 import sys
 
+# Windows-safe check and cross marks
+CHECK = "[OK]"
+CROSS = "[X]"
+
 # Check dependencies on startup
 try:
     from check_dependencies import check_and_install_dependencies
     if not check_and_install_dependencies(auto_install=True):
-        print("✗ Failed to install dependencies. Exiting.")
+        print(f"{CROSS} Failed to install dependencies. Exiting.")
         sys.exit(1)
 except ImportError:
     print("Warning: Dependency checker not available")
@@ -232,7 +236,7 @@ def save_conversation_log():
                 'conversation': [ex.dict() for ex in training_state.conversation_log]
             }, f, indent=2, ensure_ascii=False)
 
-        logger.info(f"✓ Conversation log saved: {filename}")
+        logger.info(f"{CHECK} Conversation log saved: {filename}")
     except Exception as e:
         logger.error(f"Failed to save log: {e}")
 
@@ -510,15 +514,15 @@ def run_server(host: str = "0.0.0.0", port: int = None):
 
     # Test connections
     if check_cerebrum_connection():
-        print("✓ CEREBRUM is accessible")
+        print(f"{CHECK} CEREBRUM is accessible")
     else:
-        print("✗ WARNING: Cannot connect to CEREBRUM")
+        print(f"{CROSS} WARNING: Cannot connect to CEREBRUM")
         print(f"  Make sure CEREBRUM is running at {config['cerebrum_url']}")
 
     if check_llm_connection():
-        print("✓ LLM Server is accessible")
+        print(f"{CHECK} LLM Server is accessible")
     else:
-        print("✗ WARNING: Cannot connect to LLM Server")
+        print(f"{CROSS} WARNING: Cannot connect to LLM Server")
         print(f"  Make sure LLM server is running on port {config['llm_server_port']}")
 
     print("")
