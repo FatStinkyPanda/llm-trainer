@@ -1,9 +1,15 @@
 {
   "cerebrum_url": "http://localhost:8000",
-  "llm_server_port_range": [8030, 8035],
+  "llm_server_port_range": [
+    8030,
+    8035
+  ],
   "middleware_port": 8032,
+  "web_interface_port": 8035,
+  "llm_source": "openrouter",
   "ollama_url": "http://localhost:11434",
-  "ollama_model": "gemma2:2b",
+  "ollama_model": "gemma3:4b",
+  "openrouter_model": "openrouter/polaris-alpha",
   "conversation_delay": 2.0,
   "topic_switch_interval": 10,
   "max_conversation_history": 10,
@@ -18,5 +24,6 @@
     "What would you like to understand better?",
     "How do you decide what to focus your attention on?",
     "What are your thoughts on language and communication?"
-  ]
+  ],
+  "llm_server_port": 8032
 }
