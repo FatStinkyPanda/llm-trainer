@@ -202,6 +202,34 @@ def check_port_availability(port: int) -> bool:
     process = find_process_on_port(port)
     return process is None
 
+def install_dependencies():
+    """Install missing dependencies automatically"""
+    print(f"  {ARROW} Installing missing dependencies...")
+
+    try:
+        # Install all requirements from requirements.txt
+        result = subprocess.run(
+            [sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt', '--quiet'],
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+
+        if result.returncode == 0:
+            print(f"  {CHECK} Dependencies installed successfully")
+            return True
+        else:
+            print(f"  {CROSS} Failed to install dependencies:")
+            print(f"      {result.stderr}")
+            return False
+
+    except subprocess.TimeoutExpired:
+        print(f"  {CROSS} Installation timed out")
+        return False
+    except Exception as e:
+        print(f"  {CROSS} Error installing dependencies: {e}")
+        return False
+
 def check_dependencies():
     """Check if required dependencies are installed"""
     print_section("Checking Dependencies")
@@ -209,28 +237,60 @@ def check_dependencies():
     required = ['fastapi', 'uvicorn', 'requests', 'pydantic', 'python-dotenv', 'psutil']
     optional = ['twilio', 'python-telegram-bot']
 
-    all_good = True
+    missing_required = []
+    missing_optional = []
 
     for package in required:
         try:
             __import__(package.replace('-', '_'))
             print(f"  {CHECK} {package}")
         except ImportError:
-            print(f"  {CROSS} {package} (REQUIRED)")
-            all_good = False
+            print(f"  {CROSS} {package} (REQUIRED - missing)")
+            missing_required.append(package)
 
     for package in optional:
         try:
             __import__(package.replace('-', '_'))
             print(f"  {CHECK} {package}")
         except ImportError:
-            print(f"  {WARN} {package} (optional)")
+            print(f"  {WARN} {package} (optional - missing)")
+            missing_optional.append(package)
 
-    if not all_good:
+    if missing_required or missing_optional:
         print()
-        print(f"{CROSS} Missing required dependencies!")
-        print(f"  Run: pip install -r requirements.txt")
-        sys.exit(1)
+        if missing_required:
+            print(f"{WARN} Found {len(missing_required)} missing required dependencies")
+        if missing_optional:
+            print(f"{WARN} Found {len(missing_optional)} missing optional dependencies")
+
+        print()
+        print(f"{ARROW} Attempting automatic installation...")
+
+        if install_dependencies():
+            print(f"{CHECK} All dependencies installed!")
+            print()
+
+            # Verify installation
+            print(f"{ARROW} Verifying installation...")
+            all_good = True
+            for package in missing_required:
+                try:
+                    __import__(package.replace('-', '_'))
+                    print(f"  {CHECK} {package} verified")
+                except ImportError:
+                    print(f"  {CROSS} {package} still missing")
+                    all_good = False
+
+            if not all_good:
+                print()
+                print(f"{CROSS} Some dependencies failed to install!")
+                print(f"  Please manually run: pip install -r requirements.txt")
+                sys.exit(1)
+        else:
+            print()
+            print(f"{CROSS} Automatic installation failed!")
+            print(f"  Please manually run: pip install -r requirements.txt")
+            sys.exit(1)
 
 def check_configuration():
     """Check if services are configured"""

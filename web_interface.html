@@ -33,7 +33,7 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
         }
 
@@ -55,6 +55,44 @@
             font-size: 1.1rem;
         }
 
+        .nav-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 0;
+        }
+
+        .nav-tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+            margin-bottom: -2px;
+        }
+
+        .nav-tab:hover {
+            color: var(--text-primary);
+        }
+
+        .nav-tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
         .control-panel {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -74,6 +112,10 @@
             border-radius: 12px;
             padding: 24px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .card.full-width {
+            grid-column: 1 / -1;
         }
 
         .card h2 {
@@ -106,7 +148,8 @@
         }
 
         .form-group select,
-        .form-group input {
+        .form-group input,
+        .form-group textarea {
             width: 100%;
             padding: 12px;
             background: var(--bg-dark);
@@ -118,7 +161,8 @@
         }
 
         .form-group select:focus,
-        .form-group input:focus {
+        .form-group input:focus,
+        .form-group textarea:focus {
             outline: none;
             border-color: var(--primary);
             box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
@@ -221,6 +265,11 @@
             color: var(--danger);
         }
 
+        .status-badge.warning {
+            background: rgba(245, 158, 11, 0.2);
+            color: var(--warning);
+        }
+
         .action-buttons {
             display: flex;
             gap: 12px;
@@ -235,6 +284,15 @@
             margin-top: 12px;
             font-size: 0.85rem;
             color: var(--text-secondary);
+        }
+
+        .info-box a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .info-box a:hover {
+            text-decoration: underline;
         }
 
         .spinner {
@@ -254,111 +312,392 @@
         .hidden {
             display: none;
         }
+
+        .service-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+        }
+
+        .service-card {
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .service-card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        .service-card .service-status {
+            margin-bottom: 8px;
+        }
+
+        .service-card .service-url {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            word-break: break-all;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+
+        .table th,
+        .table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .table th {
+            background: var(--bg-dark);
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .table td {
+            color: var(--text-primary);
+        }
+
+        .table tr:hover {
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>🧠 LLM Trainer Control Panel</h1>
-            <p>Configure and control CEREBRUM's language learning assistant</p>
+            <p>Complete system control for CEREBRUM's language learning assistant</p>
         </div>
 
-        <div class="control-panel">
-            <!-- LLM Source Configuration -->
-            <div class="card">
-                <h2>LLM Configuration</h2>
+        <!-- Navigation Tabs -->
+        <div class="nav-tabs">
+            <button class="nav-tab active" onclick="switchTab('overview')">Overview</button>
+            <button class="nav-tab" onclick="switchTab('training')">Training</button>
+            <button class="nav-tab" onclick="switchTab('messaging')">Messaging</button>
+            <button class="nav-tab" onclick="switchTab('users')">Users</button>
+        </div>
 
+        <!-- Overview Tab -->
+        <div id="overview-tab" class="tab-content active">
+            <!-- Service Status -->
+            <div class="card full-width">
+                <h2>System Status</h2>
+                <div class="service-grid">
+                    <div class="service-card">
+                        <h3>LLM Server</h3>
+                        <div class="service-status">
+                            <span class="status-badge stopped" id="llm-status">Unknown</span>
+                        </div>
+                        <div class="service-url" id="llm-url">Port: 8030</div>
+                    </div>
+                    <div class="service-card">
+                        <h3>Middleware</h3>
+                        <div class="service-status">
+                            <span class="status-badge running" id="middleware-status">Running</span>
+                        </div>
+                        <div class="service-url" id="middleware-url">Port: 8032</div>
+                    </div>
+                    <div class="service-card">
+                        <h3>Telegram Bot</h3>
+                        <div class="service-status">
+                            <span class="status-badge stopped" id="telegram-status">Unknown</span>
+                        </div>
+                        <div class="service-url" id="telegram-url">Port: 8041</div>
+                    </div>
+                    <div class="service-card">
+                        <h3>SMS Server</h3>
+                        <div class="service-status">
+                            <span class="status-badge stopped" id="sms-status">Unknown</span>
+                        </div>
+                        <div class="service-url" id="sms-url">Port: 8040</div>
+                    </div>
+                    <div class="service-card">
+                        <h3>CEREBRUM</h3>
+                        <div class="service-status">
+                            <span class="status-badge stopped" id="cerebrum-status">Unknown</span>
+                        </div>
+                        <div class="service-url" id="cerebrum-url">Port: 8000</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Stats -->
+            <div class="control-panel">
+                <div class="card">
+                    <h2>Training Statistics</h2>
+                    <div class="status-display">
+                        <div class="status-item">
+                            <span class="status-label">Status</span>
+                            <span class="status-value">
+                                <span class="status-badge stopped" id="training-status-badge">Stopped</span>
+                            </span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Exchanges</span>
+                            <span class="status-value" id="exchanges-completed">0</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Current Topic</span>
+                            <span class="status-value" id="current-topic">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>User Statistics</h2>
+                    <div class="status-display">
+                        <div class="status-item">
+                            <span class="status-label">Telegram Users</span>
+                            <span class="status-value" id="telegram-user-count">0</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">SMS Users</span>
+                            <span class="status-value" id="sms-user-count">0</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Total Users</span>
+                            <span class="status-value" id="total-user-count">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Training Tab -->
+        <div id="training-tab" class="tab-content">
+            <div class="control-panel">
+                <!-- LLM Configuration -->
+                <div class="card">
+                    <h2>LLM Configuration</h2>
+
+                    <div class="form-group">
+                        <label for="llm-source">LLM Source</label>
+                        <select id="llm-source">
+                            <option value="ollama">Ollama (Local)</option>
+                            <option value="openrouter">OpenRouter (API)</option>
+                        </select>
+                    </div>
+
+                    <div id="ollama-config">
+                        <div class="form-group">
+                            <label for="ollama-model">Ollama Model</label>
+                            <input type="text" id="ollama-model" placeholder="qwen3:8b">
+                        </div>
+                    </div>
+
+                    <div id="openrouter-config" class="hidden">
+                        <div class="form-group">
+                            <label for="openrouter-model">OpenRouter Model</label>
+                            <input type="text" id="openrouter-model" placeholder="anthropic/claude-3.5-sonnet">
+                        </div>
+                        <div class="form-group">
+                            <label for="openrouter-api-key">API Key</label>
+                            <input type="password" id="openrouter-api-key" placeholder="sk-or-...">
+                        </div>
+                        <div class="info-box">
+                            🔑 Get your API key from <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" id="save-llm-config-btn" style="margin-top: 20px; width: 100%;">
+                        Save LLM Configuration
+                    </button>
+                </div>
+
+                <!-- Training Controls -->
+                <div class="card">
+                    <h2>Training Control</h2>
+
+                    <div class="form-group">
+                        <label for="max-exchanges">Max Exchanges</label>
+                        <input type="number" id="max-exchanges" value="100" min="1">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="delay">Delay Between Messages (seconds)</label>
+                        <input type="number" id="delay" value="2.0" min="0.5" step="0.5">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="topic-interval">Topic Switch Interval</label>
+                        <input type="number" id="topic-interval" value="10" min="1">
+                    </div>
+
+                    <div class="action-buttons">
+                        <button class="btn btn-success" id="start-training-btn" style="flex: 1;">
+                            ▶ Start Training
+                        </button>
+                        <button class="btn btn-danger" id="stop-training-btn" style="flex: 1;" disabled>
+                            ⏹ Stop Training
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Training Status -->
+            <div class="card full-width">
+                <h2>Training Status</h2>
+                <div class="status-display">
+                    <div class="status-item">
+                        <span class="status-label">Status</span>
+                        <span class="status-value">
+                            <span class="status-badge stopped" id="training-status-badge-2">Stopped</span>
+                        </span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Current Source</span>
+                        <span class="status-value" id="current-source">-</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Current Model</span>
+                        <span class="status-value" id="current-model">-</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Exchanges Completed</span>
+                        <span class="status-value" id="exchanges-completed-2">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Current Topic</span>
+                        <span class="status-value" id="current-topic-2">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Messaging Tab -->
+        <div id="messaging-tab" class="tab-content">
+            <div class="control-panel">
+                <!-- Telegram Configuration -->
+                <div class="card">
+                    <h2>Telegram Configuration</h2>
+
+                    <div class="form-group">
+                        <label for="telegram-bot-token">Bot Token</label>
+                        <input type="password" id="telegram-bot-token" placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz">
+                    </div>
+
+                    <div class="info-box">
+                        🤖 Get your bot token from <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram
+                    </div>
+
+                    <button class="btn btn-primary" id="save-telegram-config-btn" style="margin-top: 20px; width: 100%;">
+                        Save Telegram Configuration
+                    </button>
+
+                    <div class="status-display">
+                        <div class="status-item">
+                            <span class="status-label">Status</span>
+                            <span class="status-value">
+                                <span class="status-badge stopped" id="telegram-config-status">Not Configured</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SMS Configuration -->
+                <div class="card">
+                    <h2>SMS Configuration (Twilio)</h2>
+
+                    <div class="form-group">
+                        <label for="twilio-account-sid">Account SID</label>
+                        <input type="text" id="twilio-account-sid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="twilio-auth-token">Auth Token</label>
+                        <input type="password" id="twilio-auth-token" placeholder="your_auth_token_here">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="twilio-phone-number">Phone Number</label>
+                        <input type="tel" id="twilio-phone-number" placeholder="+15555551234">
+                    </div>
+
+                    <div class="info-box">
+                        📱 Get Twilio credentials from <a href="https://www.twilio.com/console" target="_blank">twilio.com/console</a>
+                    </div>
+
+                    <button class="btn btn-primary" id="save-sms-config-btn" style="margin-top: 20px; width: 100%;">
+                        Save SMS Configuration
+                    </button>
+
+                    <div class="status-display">
+                        <div class="status-item">
+                            <span class="status-label">Status</span>
+                            <span class="status-value">
+                                <span class="status-badge stopped" id="sms-config-status">Not Configured</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Backend Configuration -->
+            <div class="card full-width">
+                <h2>AI Backend Configuration</h2>
                 <div class="form-group">
-                    <label for="llm-source">LLM Source</label>
-                    <select id="llm-source">
-                        <option value="ollama">Ollama (Local)</option>
-                        <option value="openrouter">OpenRouter (API)</option>
+                    <label for="default-ai-backend">Default AI Backend for New Users</label>
+                    <select id="default-ai-backend">
+                        <option value="openrouter">OpenRouter (Cloud AI)</option>
+                        <option value="cerebrum">CEREBRUM (Local AGI)</option>
                     </select>
                 </div>
-
-                <div id="ollama-config">
-                    <div class="form-group">
-                        <label for="ollama-model">Ollama Model</label>
-                        <input type="text" id="ollama-model" placeholder="gemma3:4b">
-                    </div>
+                <div class="info-box">
+                    ℹ️ Users can switch between AI backends using commands: /openrouter or /cerebrum
                 </div>
-
-                <div id="openrouter-config" class="hidden">
-                    <div class="form-group">
-                        <label for="openrouter-model">OpenRouter Model</label>
-                        <input type="text" id="openrouter-model" placeholder="anthropic/claude-3.5-sonnet">
-                    </div>
-                    <div class="form-group">
-                        <label for="openrouter-api-key">API Key</label>
-                        <input type="password" id="openrouter-api-key" placeholder="sk-or-...">
-                    </div>
-                    <div class="info-box">
-                        🔑 Get your API key from <a href="https://openrouter.ai/keys" target="_blank" style="color: var(--primary);">openrouter.ai/keys</a>
-                    </div>
-                </div>
-
-                <button class="btn btn-primary" id="save-config-btn" style="margin-top: 20px; width: 100%;">
-                    Save Configuration
+                <button class="btn btn-primary" id="save-ai-backend-btn" style="margin-top: 20px;">
+                    Save AI Backend Configuration
                 </button>
-            </div>
-
-            <!-- Training Controls -->
-            <div class="card">
-                <h2>Training Control</h2>
-
-                <div class="form-group">
-                    <label for="max-exchanges">Max Exchanges</label>
-                    <input type="number" id="max-exchanges" value="100" min="1">
-                </div>
-
-                <div class="form-group">
-                    <label for="delay">Delay Between Messages (seconds)</label>
-                    <input type="number" id="delay" value="2.0" min="0.5" step="0.5">
-                </div>
-
-                <div class="form-group">
-                    <label for="topic-interval">Topic Switch Interval</label>
-                    <input type="number" id="topic-interval" value="10" min="1">
-                </div>
-
-                <div class="action-buttons">
-                    <button class="btn btn-success" id="start-training-btn" style="flex: 1;">
-                        ▶ Start Training
-                    </button>
-                    <button class="btn btn-danger" id="stop-training-btn" style="flex: 1;" disabled>
-                        ⏹ Stop Training
-                    </button>
-                </div>
             </div>
         </div>
 
-        <!-- Status Display -->
-        <div class="card">
-            <h2>Training Status</h2>
-
-            <div class="status-display">
-                <div class="status-item">
-                    <span class="status-label">Status</span>
-                    <span class="status-value">
-                        <span class="status-badge stopped" id="training-status-badge">Stopped</span>
-                    </span>
+        <!-- Users Tab -->
+        <div id="users-tab" class="tab-content">
+            <div class="card full-width">
+                <h2>Registered Users</h2>
+                <div style="margin-bottom: 16px;">
+                    <button class="btn btn-primary" id="refresh-users-btn">🔄 Refresh</button>
                 </div>
-                <div class="status-item">
-                    <span class="status-label">Current Source</span>
-                    <span class="status-value" id="current-source">-</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Current Model</span>
-                    <span class="status-value" id="current-model">-</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Exchanges Completed</span>
-                    <span class="status-value" id="exchanges-completed">0</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Current Topic</span>
-                    <span class="status-value" id="current-topic">-</span>
-                </div>
+                <table class="table" id="users-table">
+                    <thead>
+                        <tr>
+                            <th>Platform</th>
+                            <th>User ID</th>
+                            <th>Name</th>
+                            <th>AI Backend</th>
+                            <th>Registered</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table-body">
+                        <tr>
+                            <td colspan="5" class="empty-state">
+                                Loading users...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>

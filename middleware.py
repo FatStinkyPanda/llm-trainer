@@ -547,14 +547,28 @@ async def get_config():
             current_config = json.load(f)
 
         return {
+            # LLM Configuration
             "llm_source": current_config.get('llm_source', 'ollama'),
             "ollama_model": current_config.get('ollama_model', ''),
             "openrouter_model": current_config.get('openrouter_model', ''),
             "openrouter_api_key": current_config.get('openrouter_api_key', ''),
+
+            # Training Configuration
             "conversation_delay": current_config.get('conversation_delay', 2.0),
             "topic_switch_interval": current_config.get('topic_switch_interval', 10),
             "max_exchanges": 100,  # Default
-            "cerebrum_url": current_config.get('cerebrum_url', 'http://localhost:8000')
+
+            # System Configuration
+            "cerebrum_url": current_config.get('cerebrum_url', 'http://localhost:8000'),
+
+            # Messaging Configuration
+            "telegram_bot_token": current_config.get('telegram_bot_token', ''),
+            "twilio_account_sid": current_config.get('twilio_account_sid', ''),
+            "twilio_auth_token": current_config.get('twilio_auth_token', ''),
+            "twilio_phone_number": current_config.get('twilio_phone_number', ''),
+
+            # AI Backend Configuration
+            "default_ai_backend": current_config.get('default_ai_backend', 'openrouter')
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load configuration: {str(e)}")
@@ -569,6 +583,7 @@ async def update_config(request: dict):
             current_config = json.load(f)
 
         # Update only the fields that were provided
+        # LLM Configuration
         if 'llm_source' in request:
             current_config['llm_source'] = request['llm_source']
         if 'ollama_model' in request:
@@ -577,10 +592,26 @@ async def update_config(request: dict):
             current_config['openrouter_model'] = request['openrouter_model']
         if 'openrouter_api_key' in request:
             current_config['openrouter_api_key'] = request['openrouter_api_key']
+
+        # Training Configuration
         if 'conversation_delay' in request:
             current_config['conversation_delay'] = float(request['conversation_delay'])
         if 'topic_switch_interval' in request:
             current_config['topic_switch_interval'] = int(request['topic_switch_interval'])
+
+        # Messaging Configuration
+        if 'telegram_bot_token' in request:
+            current_config['telegram_bot_token'] = request['telegram_bot_token']
+        if 'twilio_account_sid' in request:
+            current_config['twilio_account_sid'] = request['twilio_account_sid']
+        if 'twilio_auth_token' in request:
+            current_config['twilio_auth_token'] = request['twilio_auth_token']
+        if 'twilio_phone_number' in request:
+            current_config['twilio_phone_number'] = request['twilio_phone_number']
+
+        # AI Backend Configuration
+        if 'default_ai_backend' in request:
+            current_config['default_ai_backend'] = request['default_ai_backend']
 
         # Save updated config
         with open('config.json', 'w') as f:

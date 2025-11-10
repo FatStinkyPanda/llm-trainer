@@ -17,13 +17,14 @@ That's it! The launcher handles everything automatically.
 The launcher automatically:
 
 1. ✅ **Checks dependencies** - Verifies all required packages
-2. ✅ **Checks configuration** - Validates .env and config.json
-3. ✅ **Kills existing processes** - Finds and stops old llm-trainer processes
-4. ✅ **Frees up ports** - Ensures ports 8030-8041 are available
-5. ✅ **Starts services in order** - LLM Server → Middleware → Telegram/SMS
-6. ✅ **Health checks** - Verifies each service started correctly
-7. ✅ **Monitors services** - Watches for crashes and restarts if needed
-8. ✅ **Clean shutdown** - Stops all services gracefully on Ctrl+C
+2. ✅ **Auto-installs missing dependencies** - Automatically runs pip install if packages are missing
+3. ✅ **Checks configuration** - Validates .env and config.json
+4. ✅ **Kills existing processes** - Finds and stops old llm-trainer processes
+5. ✅ **Frees up ports** - Ensures ports 8030-8041 are available
+6. ✅ **Starts services in order** - LLM Server → Middleware → Telegram/SMS
+7. ✅ **Health checks** - Verifies each service started correctly
+8. ✅ **Monitors services** - Watches for crashes and restarts if needed
+9. ✅ **Clean shutdown** - Stops all services gracefully on Ctrl+C
 
 ---
 
