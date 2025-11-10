@@ -491,6 +491,27 @@ def monitor_services():
     print("All services started successfully!")
     print("=" * 70)
     print()
+
+    # Display web interface URL prominently
+    if 'middleware' in running_processes:
+        middleware_port = SERVICES['middleware']['port']
+        print("=" * 70)
+        print("WEB INTERFACE AVAILABLE")
+        print("=" * 70)
+        print()
+        print(f"  Open your web browser and navigate to:")
+        print()
+        print(f"    http://localhost:{middleware_port}")
+        print()
+        print(f"  Complete control panel with:")
+        print(f"    - System status monitoring")
+        print(f"    - Training configuration")
+        print(f"    - Messaging setup (Telegram/SMS)")
+        print(f"    - User management")
+        print()
+        print("=" * 70)
+        print()
+
     print("Press Ctrl+C to stop all services")
     print()
 
