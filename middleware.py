@@ -63,26 +63,9 @@ with open('config.json', 'r') as f:
 if os.getenv('OPENROUTER_API_KEY'):
     config['openrouter_api_key'] = os.getenv('OPENROUTER_API_KEY')
 
-# Wait for LLM server to update its dynamically assigned port
-# The LLM server may select a different port from the range if the default is busy
-import time
-initial_port = config.get('llm_server_port', 8030)
-print(f"[MIDDLEWARE] Initial LLM server port from config: {initial_port}")
-print(f"[MIDDLEWARE] Waiting 3 seconds for LLM server to update port if needed...")
-time.sleep(3)
-
-# Reload config to get potentially updated LLM server port
-with open('config.json', 'r') as f:
-    config = json.load(f)
-# Re-apply environment override after reload
-if os.getenv('OPENROUTER_API_KEY'):
-    config['openrouter_api_key'] = os.getenv('OPENROUTER_API_KEY')
-
-final_port = config.get('llm_server_port', 8030)
-if final_port != initial_port:
-    print(f"[MIDDLEWARE] LLM server port updated: {initial_port} -> {final_port}")
-else:
-    print(f"[MIDDLEWARE] LLM server port: {final_port}")
+# Note: LLM server port will be dynamically read when needed
+# Don't wait during import as it blocks health checks
+print(f"[MIDDLEWARE] Initial LLM server port from config: {config.get('llm_server_port', 8030)}")
 
 # Configure logging to both console and file with reduced verbosity for asyncio
 logging.basicConfig(
@@ -143,6 +126,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Startup event to reload config after LLM server is fully started
+@app.on_event("startup")
+async def startup_event():
+    """Reload config on startup to get dynamically assigned LLM server port"""
+    await asyncio.sleep(3)  # Wait for LLM server to update config if needed
+
+    try:
+        with open('config.json', 'r') as f:
+            updated_config = json.load(f)
+        # Re-apply environment override
+        if os.getenv('OPENROUTER_API_KEY'):
+            updated_config['openrouter_api_key'] = os.getenv('OPENROUTER_API_KEY')
+
+        # Update global config
+        global config
+        old_port = config.get('llm_server_port', 8030)
+        new_port = updated_config.get('llm_server_port', 8030)
+        config = updated_config
+
+        if new_port != old_port:
+            logger.info(f"LLM server port updated on startup: {old_port} -> {new_port}")
+            print(f"[MIDDLEWARE] LLM server port updated: {old_port} -> {new_port}")
+        else:
+            print(f"[MIDDLEWARE] LLM server port confirmed: {new_port}")
+    except Exception as e:
+        logger.error(f"Failed to reload config on startup: {e}")
 
 # Models
 class TrainingStartRequest(BaseModel):
