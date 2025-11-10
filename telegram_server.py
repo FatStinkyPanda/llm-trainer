@@ -94,9 +94,27 @@ def init_telegram_service() -> bool:
         return False
 
 
-def get_llm_response(user_message: str, conversation_history: list) -> Optional[str]:
+def get_llm_response(user_message: str, conversation_history: list, backend: str = 'openrouter') -> Optional[str]:
     """
-    Get response from LLM Server
+    Get response from AI backend (OpenRouter or CEREBRUM)
+
+    Args:
+        user_message: User's message
+        conversation_history: Previous conversation context
+        backend: 'openrouter' or 'cerebrum'
+
+    Returns:
+        AI response or None if failed
+    """
+    if backend == 'cerebrum':
+        return get_cerebrum_response(user_message, conversation_history)
+    else:
+        return get_openrouter_response(user_message, conversation_history)
+
+
+def get_openrouter_response(user_message: str, conversation_history: list) -> Optional[str]:
+    """
+    Get response from LLM Server (OpenRouter/Ollama)
 
     Args:
         user_message: User's message
@@ -116,14 +134,14 @@ def get_llm_response(user_message: str, conversation_history: list) -> Optional[
             "max_tokens": 500  # Longer responses for Telegram
         }
 
-        logger.info(f"Calling LLM Server at {llm_url}")
+        logger.info(f"Calling LLM Server (OpenRouter) at {llm_url}")
 
         response = requests.post(llm_url, json=payload, timeout=60)
 
         if response.status_code == 200:
             data = response.json()
             ai_response = data.get('response', '')
-            logger.info(f"Got AI response: {ai_response[:60]}...")
+            logger.info(f"Got OpenRouter response: {ai_response[:60]}...")
             return ai_response
         else:
             logger.error(f"LLM Server returned {response.status_code}: {response.text}")
@@ -134,6 +152,50 @@ def get_llm_response(user_message: str, conversation_history: list) -> Optional[
         return None
     except Exception as e:
         logger.error(f"Error calling LLM Server: {e}")
+        return None
+
+
+def get_cerebrum_response(user_message: str, conversation_history: list) -> Optional[str]:
+    """
+    Get response from CEREBRUM via middleware
+
+    Args:
+        user_message: User's message
+        conversation_history: Previous conversation context (not used by CEREBRUM)
+
+    Returns:
+        AI response or None if failed
+    """
+    try:
+        middleware_port = config.get('middleware_port', 8032)
+        middleware_url = f"http://localhost:{middleware_port}/api/chat"
+
+        payload = {
+            "message": user_message,
+            "user_id": "telegram_bot"
+        }
+
+        logger.info(f"Calling CEREBRUM via Middleware at {middleware_url}")
+
+        response = requests.post(middleware_url, json=payload, timeout=60)
+
+        if response.status_code == 200:
+            data = response.json()
+            cerebrum_response = data.get('response', '')
+            logger.info(f"Got CEREBRUM response: {cerebrum_response[:60]}...")
+            return cerebrum_response
+        else:
+            logger.error(f"Middleware returned {response.status_code}: {response.text}")
+            return None
+
+    except requests.exceptions.Timeout:
+        logger.error("Middleware request timed out")
+        return None
+    except requests.exceptions.ConnectionError:
+        logger.error("Cannot connect to middleware - is it running?")
+        return None
+    except Exception as e:
+        logger.error(f"Error calling CEREBRUM: {e}")
         return None
 
 
@@ -201,6 +263,10 @@ def process_telegram_message(chat_id: str, text: str, username: str = None, full
                     return
 
             # User is registered - process message with AI
+            # Get user's AI backend preference
+            user = db.get_user(chat_id, 'telegram')
+            ai_backend = user.get('ai_backend', 'openrouter') if user else 'openrouter'
+
             # Get conversation history
             conversation_history = db.get_conversation_history_formatted(
                 chat_id,
@@ -214,8 +280,8 @@ def process_telegram_message(chat_id: str, text: str, username: str = None, full
             # Send "typing" indicator (optional - requires webhook mode)
             # telegram_service.send_chat_action(chat_id, 'typing')
 
-            # Get AI response
-            ai_response = get_llm_response(text, conversation_history)
+            # Get AI response from selected backend
+            ai_response = get_llm_response(text, conversation_history, backend=ai_backend)
 
             if ai_response:
                 # Save AI response
@@ -280,6 +346,53 @@ def handle_command(chat_id: str, command: str, username: str = None, full_name: 
     elif command_lower.startswith('/setname'):
         # Let process_telegram_message handle it
         process_telegram_message(chat_id, command, username, full_name)
+
+    elif command_lower == '/openrouter':
+        # Switch to OpenRouter AI
+        user = db.get_user(chat_id, 'telegram')
+        if user:
+            db.update_user_ai_backend(chat_id, 'openrouter', 'telegram')
+            response = (
+                "✅ *Switched to OpenRouter AI*\n\n"
+                "You're now chatting with OpenRouter's AI models (cloud-based, advanced).\n\n"
+                "Use `/cerebrum` to switch to the local CEREBRUM AI."
+            )
+        else:
+            response = "Please use /start first to register."
+        telegram_service.send_message(chat_id, response)
+
+    elif command_lower == '/cerebrum':
+        # Switch to CEREBRUM AI
+        user = db.get_user(chat_id, 'telegram')
+        if user:
+            db.update_user_ai_backend(chat_id, 'cerebrum', 'telegram')
+            response = (
+                "✅ *Switched to CEREBRUM AI*\n\n"
+                "You're now chatting with CEREBRUM, a novel AGI system running locally.\n"
+                "CEREBRUM is currently learning language and may give shorter responses.\n\n"
+                "Use `/openrouter` to switch back to OpenRouter AI."
+            )
+        else:
+            response = "Please use /start first to register."
+        telegram_service.send_message(chat_id, response)
+
+    elif command_lower == '/status':
+        # Show current AI backend
+        user = db.get_user(chat_id, 'telegram')
+        if user:
+            current_ai = user.get('ai_backend', 'openrouter')
+            ai_name = "OpenRouter AI" if current_ai == 'openrouter' else "CEREBRUM AI"
+            response = (
+                f"🤖 *Current AI Backend*\n\n"
+                f"You're chatting with: *{ai_name}*\n\n"
+                f"*Available AIs:*\n"
+                f"• `/openrouter` - Cloud-based advanced AI\n"
+                f"• `/cerebrum` - Local novel AGI system\n\n"
+                f"Use these commands to switch between them."
+            )
+        else:
+            response = "Please use /start first to register."
+        telegram_service.send_message(chat_id, response)
 
     else:
         telegram_service.send_message(

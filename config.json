@@ -25,7 +25,7 @@
     "How do you decide what to focus your attention on?",
     "What are your thoughts on language and communication?"
   ],
-  "llm_server_port": 8033,
+  "llm_server_port": 8030,
   "openrouter_api_key": "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",
   "sms_server_port": 8040,
   "twilio_account_sid": "",

@@ -679,6 +679,56 @@ async def get_conversation_log(limit: int = 100):
     }
 
 
+# Direct chat endpoint for external integrations (Telegram, SMS, etc.)
+class ChatRequest(BaseModel):
+    message: str
+    user_id: str = "external_user"
+    conversation_history: Optional[List[Dict[str, str]]] = None
+
+
+class ChatResponse(BaseModel):
+    response: str
+    emotions: Optional[Dict[str, float]] = None
+    timestamp: str
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_with_cerebrum(request: ChatRequest):
+    """
+    Direct chat endpoint for CEREBRUM
+
+    Allows external services (Telegram bot, SMS server) to chat with CEREBRUM
+    without going through the training loop.
+    """
+    try:
+        # Check CEREBRUM connection
+        if not check_cerebrum_connection():
+            raise HTTPException(status_code=503, detail="CEREBRUM is not accessible")
+
+        # Send message to CEREBRUM
+        cerebrum_data = send_to_cerebrum(request.message)
+
+        if not cerebrum_data:
+            raise HTTPException(status_code=500, detail="Failed to get response from CEREBRUM")
+
+        cerebrum_response = cerebrum_data.get('response', '')
+        cerebrum_emotions = cerebrum_data.get('emotions', {})
+
+        logger.info(f"Chat with CEREBRUM - User: {request.user_id}, Response: {cerebrum_response[:60]}...")
+
+        return ChatResponse(
+            response=cerebrum_response,
+            emotions=cerebrum_emotions,
+            timestamp=datetime.now().isoformat()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in chat endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
 def run_server(host: str = "0.0.0.0", port: int = None):
     """Run the middleware server"""
     port = port or config['middleware_port']

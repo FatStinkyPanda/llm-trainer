@@ -337,7 +337,13 @@ class TelegramService:
             "• `/start` - Start conversation\n"
             "• `/setname <name>` - Set or change your name\n"
             "• `/clear` - Clear conversation history\n"
+            "• `/status` - Show current AI backend\n"
+            "• `/openrouter` - Switch to OpenRouter AI\n"
+            "• `/cerebrum` - Switch to CEREBRUM AI\n"
             "• `/help` - Show this help message\n\n"
+            "*AI Backends:*\n"
+            "🌐 *OpenRouter* - Cloud-based advanced AI with extensive knowledge\n"
+            "🧠 *CEREBRUM* - Novel local AGI system, currently learning language\n\n"
             "*How to use:*\n"
             "Just send me any message and I'll respond with AI-generated answers. "
             "Your conversation history is saved, so I remember context from previous messages.\n\n"
@@ -345,6 +351,7 @@ class TelegramService:
             "✅ Natural conversations with AI\n"
             "✅ Context-aware responses\n"
             "✅ Persistent conversation history\n"
+            "✅ Switch between AI backends\n"
             "✅ Free to use!"
         )
 

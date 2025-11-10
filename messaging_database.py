@@ -47,6 +47,7 @@ class MessagingDatabase:
                 platform TEXT NOT NULL,
                 name TEXT,
                 username TEXT,
+                ai_backend TEXT DEFAULT 'openrouter',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
@@ -114,7 +115,8 @@ class MessagingDatabase:
         user_id: str,
         platform: str,
         name: Optional[str] = None,
-        username: Optional[str] = None
+        username: Optional[str] = None,
+        ai_backend: str = 'openrouter'
     ) -> Dict:
         """
         Create new user
@@ -124,6 +126,7 @@ class MessagingDatabase:
             platform: 'sms' or 'telegram'
             name: User's display name (optional)
             username: Telegram username (optional, Telegram only)
+            ai_backend: AI backend preference ('openrouter' or 'cerebrum')
 
         Returns:
             Created user dict
@@ -133,20 +136,21 @@ class MessagingDatabase:
 
         cursor.execute(
             """
-            INSERT INTO users (user_id, platform, name, username, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO users (user_id, platform, name, username, ai_backend, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, platform, name, username, now, now)
+            (user_id, platform, name, username, ai_backend, now, now)
         )
 
         self.conn.commit()
-        logger.info(f"Created {platform} user: {user_id} (name: {name})")
+        logger.info(f"Created {platform} user: {user_id} (name: {name}, AI: {ai_backend})")
 
         return {
             "user_id": user_id,
             "platform": platform,
             "name": name,
             "username": username,
+            "ai_backend": ai_backend,
             "created_at": now,
             "updated_at": now
         }
@@ -189,6 +193,47 @@ class MessagingDatabase:
 
         if cursor.rowcount > 0:
             logger.info(f"Updated name for {user_id}: {name}")
+            return True
+        return False
+
+    def update_user_ai_backend(self, user_id: str, ai_backend: str, platform: str = None) -> bool:
+        """
+        Update user's AI backend preference
+
+        Args:
+            user_id: User identifier
+            ai_backend: AI backend ('openrouter' or 'cerebrum')
+            platform: Platform filter (optional)
+
+        Returns:
+            True if updated, False if user not found
+        """
+        cursor = self.conn.cursor()
+        now = datetime.now().isoformat()
+
+        if platform:
+            cursor.execute(
+                """
+                UPDATE users
+                SET ai_backend = ?, updated_at = ?
+                WHERE user_id = ? AND platform = ?
+                """,
+                (ai_backend, now, user_id, platform)
+            )
+        else:
+            cursor.execute(
+                """
+                UPDATE users
+                SET ai_backend = ?, updated_at = ?
+                WHERE user_id = ?
+                """,
+                (ai_backend, now, user_id)
+            )
+
+        self.conn.commit()
+
+        if cursor.rowcount > 0:
+            logger.info(f"Updated AI backend for {user_id}: {ai_backend}")
             return True
         return False
 
