@@ -34,24 +34,30 @@ WARN = "[!]"
 
 # MCP Logging Configuration
 MCP_LOGGING_ENABLED = True
+MCP_LOG_FILE = "launcher_mcp_logs.jsonl"  # Structured logs for MCP ingestion
 
 class LauncherLogger:
     """Integrated logging with MCP OpenMemory logging service
 
-    Uses the MCP openmemory-code-global server's log_event tool for
-    autonomous logging with latest naming conventions.
+    This logger writes structured logs to a JSONL file that can be ingested
+    by Claude's MCP tools. The logs follow the MCP autonomous naming system
+    and can be imported into OpenMemory for analysis.
+
+    Note: This is a standalone Python script, so it can't directly call MCP tools.
+    Instead, it writes structured logs that Claude can import via MCP tools.
     """
 
     def __init__(self, project_name: str = "llm-trainer"):
         self.project_name = project_name
         self.source = "start_llm_trainer.py"
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.mcp_log_path = Path(MCP_LOG_FILE)
 
     def _log_to_mcp(self, level: str, category: str, message: str, context: Dict = None):
-        """Send log to MCP logging service via openmemory-code-global
+        """Write structured log entry for MCP ingestion
 
-        The MCP logging service uses autonomous naming system for logs
-        which automatically organizes and categorizes logs.
+        Logs are written to a JSONL file (one JSON object per line) that can be
+        easily parsed and imported by Claude's MCP tools for analysis.
 
         Args:
             level: trace, debug, info, warn, error, fatal
@@ -63,44 +69,25 @@ class LauncherLogger:
             return
 
         try:
-            # Prepare context with session tracking
-            log_context = context or {}
-            log_context["session_id"] = self.session_id
-            log_context["timestamp"] = datetime.now().isoformat()
-            log_context["source_file"] = self.source
-
-            # Call MCP logging tool directly via subprocess
-            # This uses the mcp__openmemory-code-global__log_event tool
-            import json as json_module
-            mcp_payload = json_module.dumps({
+            # Prepare log entry with full context
+            log_entry = {
                 "level": level,
                 "category": category,
                 "source": self.source,
                 "message": message,
-                "context": log_context
-            })
+                "session_id": self.session_id,
+                "timestamp": datetime.now().isoformat(),
+                "project": self.project_name,
+                "context": context or {}
+            }
 
-            # The MCP server is accessed via Claude's tool system
-            # For now, we'll use HTTP fallback if tool not available
-            try:
-                # Try HTTP API to MCP server
-                requests.post(
-                    "http://localhost:3000/mcp/log",
-                    json={
-                        "level": level,
-                        "category": category,
-                        "source": self.source,
-                        "message": message,
-                        "context": log_context
-                    },
-                    timeout=0.5
-                )
-            except:
-                # Silent fail if MCP not available
-                pass
+            # Write to JSONL file (one JSON object per line)
+            # This format is easy to parse and can be ingested by MCP tools
+            with open(self.mcp_log_path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(log_entry) + '\n')
 
         except Exception:
-            # Silent fail - don't disrupt launcher if MCP unavailable
+            # Silent fail - don't disrupt launcher if logging fails
             pass
 
     def info(self, message: str, context: Dict = None, category: str = "system"):

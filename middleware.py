@@ -30,6 +30,8 @@ import logging
 import os
 import threading
 import time
+import asyncio
+import warnings
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pathlib import Path
@@ -39,7 +41,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 import requests
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 from dotenv import load_dotenv
+
+# Suppress Windows asyncio proactor warnings
+if sys.platform == 'win32':
+    # Suppress ConnectionResetError in asyncio proactor
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*proactor.*")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -66,7 +76,7 @@ while 'llm_server_port' not in config and waited < max_wait:
         config['openrouter_api_key'] = os.getenv('OPENROUTER_API_KEY')
     waited += 1
 
-# Configure logging to both console and file
+# Configure logging to both console and file with reduced verbosity for asyncio
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - [MIDDLEWARE] - %(levelname)s - %(message)s',
@@ -76,6 +86,43 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Reduce asyncio logging verbosity
+logging.getLogger('asyncio').setLevel(logging.WARNING)
+logging.getLogger('asyncio.events').setLevel(logging.ERROR)
+
+# Create resilient HTTP session with connection pooling and retry logic
+def create_resilient_session() -> requests.Session:
+    """
+    Create HTTP session with:
+    - Connection pooling (reduces connection overhead)
+    - Automatic retry with exponential backoff
+    - Reasonable timeouts
+    """
+    session = requests.Session()
+
+    # Retry strategy: 3 retries with exponential backoff
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=0.5,  # 0.5s, 1s, 2s delays
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE", "OPTIONS", "TRACE"]
+    )
+
+    # Mount adapter with retry strategy for both http and https
+    adapter = HTTPAdapter(
+        max_retries=retry_strategy,
+        pool_connections=10,  # Connection pool size
+        pool_maxsize=20,      # Max pool size
+        pool_block=False      # Don't block on pool exhaustion
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+
+    return session
+
+# Global session for connection pooling
+http_session = create_resilient_session()
 
 app = FastAPI(title="CEREBRUM-LLM Middleware", version="1.0.0")
 
@@ -129,26 +176,34 @@ training_thread: Optional[threading.Thread] = None
 
 
 def check_cerebrum_connection() -> bool:
-    """Check if CEREBRUM is accessible"""
+    """Check if CEREBRUM is accessible with reduced timeout"""
     try:
-        response = requests.get(f"{config['cerebrum_url']}/api/status", timeout=5)
+        response = http_session.get(
+            f"{config['cerebrum_url']}/api/status",
+            timeout=2  # Reduced timeout for health checks
+        )
         return response.status_code == 200
-    except:
+    except Exception:
+        # Silent failure - CEREBRUM not available
         return False
 
 
 def check_llm_connection() -> bool:
-    """Check if LLM server is accessible"""
+    """Check if LLM server is accessible with reduced timeout"""
     try:
-        response = requests.get(f"http://localhost:{config['llm_server_port']}/", timeout=5)
+        response = http_session.get(
+            f"http://localhost:{config['llm_server_port']}/",
+            timeout=2  # Reduced timeout for health checks
+        )
         return response.status_code == 200
-    except:
+    except Exception:
+        # Silent failure - LLM not available
         return False
 
 
 def send_to_cerebrum(message: str) -> Optional[Dict[str, Any]]:
     """
-    Send message to CEREBRUM via its /api/chat endpoint
+    Send message to CEREBRUM via its /api/chat endpoint with resilient connection
 
     Args:
         message: Message to send
@@ -159,13 +214,13 @@ def send_to_cerebrum(message: str) -> Optional[Dict[str, Any]]:
     try:
         logger.info(f"-> CEREBRUM: {message[:60]}...")
 
-        response = requests.post(
+        response = http_session.post(
             f"{config['cerebrum_url']}/api/chat",
             json={
                 "message": message,
                 "user_id": "llm_trainer"
             },
-            timeout=30
+            timeout=30  # Keep longer timeout for actual chat
         )
 
         if response.status_code == 200:
@@ -177,6 +232,12 @@ def send_to_cerebrum(message: str) -> Optional[Dict[str, Any]]:
             logger.error(f"CEREBRUM returned {response.status_code}: {response.text}")
             return None
 
+    except requests.exceptions.Timeout:
+        logger.warning(f"CEREBRUM request timed out")
+        return None
+    except requests.exceptions.ConnectionError:
+        logger.warning(f"Cannot connect to CEREBRUM")
+        return None
     except Exception as e:
         logger.error(f"Error sending to CEREBRUM: {e}")
         return None
@@ -211,7 +272,7 @@ def send_to_llm(message: str, conversation_history: List[Dict[str, str]] = None,
 
         logger.info(f"-> LLM: {message[:60]}...")
 
-        response = requests.post(
+        response = http_session.post(
             f"http://localhost:{config['llm_server_port']}/api/chat",
             json={
                 "message": enriched_message,
@@ -219,7 +280,7 @@ def send_to_llm(message: str, conversation_history: List[Dict[str, str]] = None,
                 "temperature": 0.9,  # Higher temperature for more variety
                 "max_tokens": 150
             },
-            timeout=60
+            timeout=60  # Keep longer timeout for LLM generation
         )
 
         if response.status_code == 200:
@@ -231,6 +292,12 @@ def send_to_llm(message: str, conversation_history: List[Dict[str, str]] = None,
             logger.error(f"LLM server returned {response.status_code}: {response.text}")
             return None
 
+    except requests.exceptions.Timeout:
+        logger.warning(f"LLM request timed out")
+        return None
+    except requests.exceptions.ConnectionError:
+        logger.warning(f"Cannot connect to LLM server")
+        return None
     except Exception as e:
         logger.error(f"Error sending to LLM: {e}")
         return None
@@ -515,28 +582,42 @@ async def get_status():
 
 @app.get("/api/cerebrum/status")
 async def get_cerebrum_status():
-    """Proxy to CEREBRUM status endpoint"""
+    """Proxy to CEREBRUM status endpoint with resilient connection"""
     try:
-        response = requests.get(f"{config['cerebrum_url']}/api/status", timeout=5)
+        response = http_session.get(
+            f"{config['cerebrum_url']}/api/status",
+            timeout=3  # Reduced timeout for status checks
+        )
         if response.status_code == 200:
             return response.json()
         else:
             raise HTTPException(status_code=response.status_code, detail="CEREBRUM unreachable")
+    except requests.exceptions.Timeout:
+        raise HTTPException(status_code=504, detail="CEREBRUM request timed out")
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(status_code=503, detail="Cannot connect to CEREBRUM")
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Cannot connect to CEREBRUM: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"CEREBRUM error: {str(e)}")
 
 
 @app.get("/api/llm/status")
 async def get_llm_status():
-    """Proxy to LLM server status endpoint"""
+    """Proxy to LLM server status endpoint with resilient connection"""
     try:
-        response = requests.get(f"http://localhost:{config['llm_server_port']}/api/status", timeout=5)
+        response = http_session.get(
+            f"http://localhost:{config['llm_server_port']}/api/status",
+            timeout=3  # Reduced timeout for status checks
+        )
         if response.status_code == 200:
             return response.json()
         else:
             raise HTTPException(status_code=response.status_code, detail="LLM server unreachable")
+    except requests.exceptions.Timeout:
+        raise HTTPException(status_code=504, detail="LLM server request timed out")
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(status_code=503, detail="Cannot connect to LLM server")
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Cannot connect to LLM server: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"LLM server error: {str(e)}")
 
 
 @app.get("/api/config")
