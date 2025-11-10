@@ -237,12 +237,21 @@ def check_dependencies():
     required = ['fastapi', 'uvicorn', 'requests', 'pydantic', 'python-dotenv', 'psutil']
     optional = ['twilio', 'python-telegram-bot']
 
+    # Mapping of package names to import names (when they differ)
+    import_names = {
+        'python-dotenv': 'dotenv',
+        'python-telegram-bot': 'telegram',
+        'python-multipart': 'multipart'
+    }
+
     missing_required = []
     missing_optional = []
 
     for package in required:
         try:
-            __import__(package.replace('-', '_'))
+            # Get the correct import name
+            import_name = import_names.get(package, package.replace('-', '_'))
+            __import__(import_name)
             print(f"  {CHECK} {package}")
         except ImportError:
             print(f"  {CROSS} {package} (REQUIRED - missing)")
@@ -250,7 +259,9 @@ def check_dependencies():
 
     for package in optional:
         try:
-            __import__(package.replace('-', '_'))
+            # Get the correct import name
+            import_name = import_names.get(package, package.replace('-', '_'))
+            __import__(import_name)
             print(f"  {CHECK} {package}")
         except ImportError:
             print(f"  {WARN} {package} (optional - missing)")
@@ -272,10 +283,19 @@ def check_dependencies():
 
             # Verify installation
             print(f"{ARROW} Verifying installation...")
+
+            # Mapping of package names to import names
+            import_names = {
+                'python-dotenv': 'dotenv',
+                'python-telegram-bot': 'telegram',
+                'python-multipart': 'multipart'
+            }
+
             all_good = True
             for package in missing_required:
                 try:
-                    __import__(package.replace('-', '_'))
+                    import_name = import_names.get(package, package.replace('-', '_'))
+                    __import__(import_name)
                     print(f"  {CHECK} {package} verified")
                 except ImportError:
                     print(f"  {CROSS} {package} still missing")
