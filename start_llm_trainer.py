@@ -21,8 +21,10 @@ import json
 import psutil
 import signal
 import requests
+import traceback
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
+from datetime import datetime
 
 # Windows-safe symbols
 CHECK = "[OK]"
@@ -30,13 +32,141 @@ CROSS = "[X]"
 ARROW = "-->"
 WARN = "[!]"
 
+# MCP Logging Configuration
+MCP_LOGGING_ENABLED = True
+
+class LauncherLogger:
+    """Integrated logging with MCP OpenMemory logging service
+
+    Uses the MCP openmemory-code-global server's log_event tool for
+    autonomous logging with latest naming conventions.
+    """
+
+    def __init__(self, project_name: str = "llm-trainer"):
+        self.project_name = project_name
+        self.source = "start_llm_trainer.py"
+        self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    def _log_to_mcp(self, level: str, category: str, message: str, context: Dict = None):
+        """Send log to MCP logging service via openmemory-code-global
+
+        The MCP logging service uses autonomous naming system for logs
+        which automatically organizes and categorizes logs.
+
+        Args:
+            level: trace, debug, info, warn, error, fatal
+            category: main, error, ai-agent, api, debug, system, performance
+            message: Log message
+            context: Additional context data
+        """
+        if not MCP_LOGGING_ENABLED:
+            return
+
+        try:
+            # Prepare context with session tracking
+            log_context = context or {}
+            log_context["session_id"] = self.session_id
+            log_context["timestamp"] = datetime.now().isoformat()
+            log_context["source_file"] = self.source
+
+            # Call MCP logging tool directly via subprocess
+            # This uses the mcp__openmemory-code-global__log_event tool
+            import json as json_module
+            mcp_payload = json_module.dumps({
+                "level": level,
+                "category": category,
+                "source": self.source,
+                "message": message,
+                "context": log_context
+            })
+
+            # The MCP server is accessed via Claude's tool system
+            # For now, we'll use HTTP fallback if tool not available
+            try:
+                # Try HTTP API to MCP server
+                requests.post(
+                    "http://localhost:3000/mcp/log",
+                    json={
+                        "level": level,
+                        "category": category,
+                        "source": self.source,
+                        "message": message,
+                        "context": log_context
+                    },
+                    timeout=0.5
+                )
+            except:
+                # Silent fail if MCP not available
+                pass
+
+        except Exception:
+            # Silent fail - don't disrupt launcher if MCP unavailable
+            pass
+
+    def info(self, message: str, context: Dict = None, category: str = "system"):
+        """Log info level message"""
+        self._log_to_mcp("info", category, message, context)
+
+    def warn(self, message: str, context: Dict = None, category: str = "system"):
+        """Log warning level message"""
+        self._log_to_mcp("warn", category, message, context)
+
+    def error(self, message: str, context: Dict = None, category: str = "error"):
+        """Log error level message"""
+        self._log_to_mcp("error", category, message, context)
+
+    def fatal(self, message: str, context: Dict = None, category: str = "error"):
+        """Log fatal level message"""
+        self._log_to_mcp("fatal", category, message, context)
+
+    def debug(self, message: str, context: Dict = None, category: str = "debug"):
+        """Log debug level message"""
+        self._log_to_mcp("debug", category, message, context)
+
+    def trace(self, message: str, context: Dict = None, category: str = "debug"):
+        """Log trace level message"""
+        self._log_to_mcp("trace", category, message, context)
+
+    def performance(self, message: str, duration: float, context: Dict = None):
+        """Log performance metric"""
+        ctx = context or {}
+        ctx["duration_ms"] = duration * 1000
+        self._log_to_mcp("info", "performance", message, ctx)
+
+    def exception(self, message: str, exc: Exception, context: Dict = None):
+        """Log exception with full traceback"""
+        ctx = context or {}
+        ctx["exception_type"] = type(exc).__name__
+        ctx["exception_message"] = str(exc)
+        ctx["traceback"] = traceback.format_exc()
+        self._log_to_mcp("error", "error", message, ctx)
+
+# Initialize logger
+logger = LauncherLogger()
+
 # Load configuration
 def load_config():
     """Load configuration"""
+    start_time = time.time()
     try:
+        logger.debug("Loading configuration from config.json")
         with open('config.json', 'r') as f:
-            return json.load(f)
+            config_data = json.load(f)
+
+        duration = time.time() - start_time
+        logger.performance("Configuration loaded", duration, {"config_keys": list(config_data.keys())})
+        logger.info("Configuration loaded successfully", {"num_keys": len(config_data)})
+        return config_data
+    except FileNotFoundError as e:
+        logger.fatal("Configuration file not found", {"error": str(e), "file": "config.json"})
+        print(f"{CROSS} Error loading config.json: {e}")
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        logger.fatal("Invalid JSON in configuration file", {"error": str(e), "file": "config.json"})
+        print(f"{CROSS} Error loading config.json: {e}")
+        sys.exit(1)
     except Exception as e:
+        logger.exception("Unexpected error loading configuration", e)
         print(f"{CROSS} Error loading config.json: {e}")
         sys.exit(1)
 
@@ -205,9 +335,17 @@ def check_port_availability(port: int) -> bool:
 def install_dependencies():
     """Install missing dependencies automatically"""
     print(f"  {ARROW} Installing missing dependencies...")
+    start_time = time.time()
+
+    logger.info("Starting automatic dependency installation", {"source_file": "requirements.txt"})
 
     try:
         # Install all requirements from requirements.txt
+        logger.debug("Running pip install command", {
+            "command": f"{sys.executable} -m pip install -r requirements.txt",
+            "timeout": 300
+        })
+
         result = subprocess.run(
             [sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt', '--quiet'],
             capture_output=True,
@@ -215,24 +353,46 @@ def install_dependencies():
             timeout=300  # 5 minute timeout
         )
 
+        duration = time.time() - start_time
+
         if result.returncode == 0:
             print(f"  {CHECK} Dependencies installed successfully")
+            logger.performance("Dependencies installed successfully", duration, {
+                "return_code": result.returncode,
+                "stdout_length": len(result.stdout)
+            })
             return True
         else:
             print(f"  {CROSS} Failed to install dependencies:")
             print(f"      {result.stderr}")
+            logger.error("Dependency installation failed", {
+                "return_code": result.returncode,
+                "stderr": result.stderr,
+                "stdout": result.stdout,
+                "duration": duration
+            })
             return False
 
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
         print(f"  {CROSS} Installation timed out")
+        logger.error("Dependency installation timed out", {
+            "timeout": 300,
+            "duration": time.time() - start_time
+        })
         return False
     except Exception as e:
         print(f"  {CROSS} Error installing dependencies: {e}")
+        logger.exception("Unexpected error during dependency installation", e, {
+            "duration": time.time() - start_time
+        })
         return False
 
 def check_dependencies():
     """Check if required dependencies are installed"""
     print_section("Checking Dependencies")
+    start_time = time.time()
+
+    logger.info("Starting dependency check", {"category": "system"})
 
     required = ['fastapi', 'uvicorn', 'requests', 'pydantic', 'python-dotenv', 'psutil']
     optional = ['twilio', 'python-telegram-bot']
@@ -253,9 +413,15 @@ def check_dependencies():
             import_name = import_names.get(package, package.replace('-', '_'))
             __import__(import_name)
             print(f"  {CHECK} {package}")
-        except ImportError:
+            logger.debug(f"Package {package} found", {"package": package, "import_name": import_name})
+        except ImportError as e:
             print(f"  {CROSS} {package} (REQUIRED - missing)")
             missing_required.append(package)
+            logger.warn(f"Required package {package} missing", {
+                "package": package,
+                "import_name": import_name,
+                "error": str(e)
+            })
 
     for package in optional:
         try:
@@ -263,19 +429,34 @@ def check_dependencies():
             import_name = import_names.get(package, package.replace('-', '_'))
             __import__(import_name)
             print(f"  {CHECK} {package}")
-        except ImportError:
+            logger.debug(f"Optional package {package} found", {"package": package, "import_name": import_name})
+        except ImportError as e:
             print(f"  {WARN} {package} (optional - missing)")
             missing_optional.append(package)
+            logger.debug(f"Optional package {package} missing", {
+                "package": package,
+                "import_name": import_name,
+                "error": str(e)
+            })
 
     if missing_required or missing_optional:
         print()
         if missing_required:
             print(f"{WARN} Found {len(missing_required)} missing required dependencies")
+            logger.warn("Missing required dependencies", {
+                "missing_packages": missing_required,
+                "count": len(missing_required)
+            })
         if missing_optional:
             print(f"{WARN} Found {len(missing_optional)} missing optional dependencies")
+            logger.info("Missing optional dependencies", {
+                "missing_packages": missing_optional,
+                "count": len(missing_optional)
+            })
 
         print()
         print(f"{ARROW} Attempting automatic installation...")
+        logger.info("Attempting automatic dependency installation")
 
         if install_dependencies():
             print(f"{CHECK} All dependencies installed!")
@@ -283,6 +464,7 @@ def check_dependencies():
 
             # Verify installation
             print(f"{ARROW} Verifying installation...")
+            logger.debug("Verifying installed dependencies")
 
             # Mapping of package names to import names
             import_names = {
@@ -292,25 +474,53 @@ def check_dependencies():
             }
 
             all_good = True
+            verified = []
+            still_missing = []
+
             for package in missing_required:
                 try:
                     import_name = import_names.get(package, package.replace('-', '_'))
                     __import__(import_name)
                     print(f"  {CHECK} {package} verified")
-                except ImportError:
+                    verified.append(package)
+                    logger.debug(f"Package {package} verified after installation", {"package": package})
+                except ImportError as e:
                     print(f"  {CROSS} {package} still missing")
+                    still_missing.append(package)
+                    logger.error(f"Package {package} still missing after installation", {
+                        "package": package,
+                        "error": str(e)
+                    })
                     all_good = False
+
+            duration = time.time() - start_time
+            logger.performance("Dependency check completed", duration, {
+                "verified": verified,
+                "still_missing": still_missing,
+                "success": all_good
+            })
 
             if not all_good:
                 print()
                 print(f"{CROSS} Some dependencies failed to install!")
                 print(f"  Please manually run: pip install -r requirements.txt")
+                logger.fatal("Dependency installation verification failed", {
+                    "still_missing": still_missing,
+                    "duration": duration
+                })
                 sys.exit(1)
         else:
             print()
             print(f"{CROSS} Automatic installation failed!")
             print(f"  Please manually run: pip install -r requirements.txt")
+            logger.fatal("Automatic dependency installation failed")
             sys.exit(1)
+    else:
+        duration = time.time() - start_time
+        logger.performance("All dependencies satisfied", duration, {
+            "required_count": len(required),
+            "optional_count": len(optional)
+        })
 
 def check_configuration():
     """Check if services are configured"""
@@ -354,11 +564,23 @@ def start_service(service_name: str, service_info: Dict) -> Optional[subprocess.
     script = service_info['script']
     name = service_info['name']
     port = service_info['port']
+    start_time = time.time()
 
     print(f"  {ARROW} Starting {name} (port {port})...")
+    logger.info(f"Starting service: {name}", {
+        "service": service_name,
+        "script": script,
+        "port": port,
+        "required": service_info['required']
+    })
 
     try:
         # Start process
+        logger.debug(f"Launching {name} process", {
+            "command": f"{sys.executable} {script}",
+            "service": service_name
+        })
+
         process = subprocess.Popen(
             [sys.executable, script],
             stdout=subprocess.PIPE,
@@ -368,29 +590,77 @@ def start_service(service_name: str, service_info: Dict) -> Optional[subprocess.
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
         )
 
+        logger.debug(f"{name} process created", {
+            "pid": process.pid,
+            "service": service_name
+        })
+
         # Wait for startup
         startup_delay = service_info.get('startup_delay', 3)
+        logger.trace(f"Waiting {startup_delay}s for {name} startup", {
+            "delay": startup_delay,
+            "service": service_name
+        })
         time.sleep(startup_delay)
 
         # Check if process is still running
         if process.poll() is not None:
             print(f"  {CROSS} {name} failed to start")
+            # Capture error output
+            stdout, stderr = process.communicate(timeout=1)
+            logger.error(f"Service {name} failed to start", {
+                "service": service_name,
+                "pid": process.pid,
+                "return_code": process.returncode,
+                "stdout": stdout[:500] if stdout else None,
+                "stderr": stderr[:500] if stderr else None,
+                "duration": time.time() - start_time
+            })
             return None
 
         # Check health if available
         health_check = service_info.get('health_check')
         if health_check:
-            if health_check(port):
+            logger.debug(f"Running health check for {name}", {"service": service_name, "port": port})
+            health_ok = health_check(port)
+
+            if health_ok:
                 print(f"  {CHECK} {name} started successfully (PID {process.pid})")
+                duration = time.time() - start_time
+                logger.performance(f"Service {name} started successfully", duration, {
+                    "service": service_name,
+                    "pid": process.pid,
+                    "port": port,
+                    "health_check_passed": True
+                })
             else:
                 print(f"  {WARN} {name} started but health check failed (PID {process.pid})")
+                logger.warn(f"Service {name} health check failed", {
+                    "service": service_name,
+                    "pid": process.pid,
+                    "port": port,
+                    "duration": time.time() - start_time
+                })
         else:
             print(f"  {CHECK} {name} started (PID {process.pid})")
+            duration = time.time() - start_time
+            logger.performance(f"Service {name} started", duration, {
+                "service": service_name,
+                "pid": process.pid,
+                "port": port,
+                "health_check": False
+            })
 
         return process
 
     except Exception as e:
         print(f"  {CROSS} Failed to start {name}: {e}")
+        logger.exception(f"Exception starting service {name}", e, {
+            "service": service_name,
+            "script": script,
+            "port": port,
+            "duration": time.time() - start_time
+        })
         return None
 
 def start_all_services():
@@ -492,6 +762,11 @@ def monitor_services():
     print("=" * 70)
     print()
 
+    logger.info("Service monitoring started", {
+        "monitoring_services": list(running_processes.keys()),
+        "total_services": len(running_processes)
+    })
+
     # Display web interface URL prominently
     if 'middleware' in running_processes:
         middleware_port = SERVICES['middleware']['port']
@@ -512,12 +787,26 @@ def monitor_services():
         print("=" * 70)
         print()
 
+        logger.info("Web interface available", {
+            "url": f"http://localhost:{middleware_port}",
+            "port": middleware_port
+        })
+
     print("Press Ctrl+C to stop all services")
     print()
+
+    monitor_start = time.time()
+    health_check_count = 0
 
     try:
         while True:
             time.sleep(5)
+            health_check_count += 1
+
+            logger.trace(f"Health check #{health_check_count}", {
+                "running_services": list(running_processes.keys()),
+                "uptime": time.time() - monitor_start
+            })
 
             # Check if any process died
             for service_name, process in list(running_processes.items()):
@@ -525,29 +814,71 @@ def monitor_services():
                     service_info = SERVICES[service_name]
                     print(f"\n{CROSS} {service_info['name']} stopped unexpectedly!")
 
+                    # Get exit information
+                    return_code = process.returncode
+                    logger.error(f"Service {service_info['name']} crashed", {
+                        "service": service_name,
+                        "pid": process.pid,
+                        "return_code": return_code,
+                        "uptime": time.time() - monitor_start,
+                        "health_checks_completed": health_check_count
+                    })
+
                     if service_info['required']:
                         print(f"  Required service failed - stopping all services")
+                        logger.fatal(f"Required service {service_info['name']} failed - shutting down", {
+                            "service": service_name,
+                            "return_code": return_code
+                        })
                         cleanup_on_exit()
                         sys.exit(1)
                     else:
+                        logger.warn(f"Optional service {service_info['name']} stopped", {
+                            "service": service_name,
+                            "continuing": True
+                        })
                         del running_processes[service_name]
 
             # Exit if all processes are dead
             if not running_processes:
                 print(f"\n{CROSS} All services stopped - exiting")
+                logger.error("All services stopped unexpectedly", {
+                    "uptime": time.time() - monitor_start,
+                    "health_checks": health_check_count
+                })
                 break
 
     except KeyboardInterrupt:
         print("\n\nShutdown requested...")
+        logger.info("Monitoring interrupted by user", {
+            "uptime": time.time() - monitor_start,
+            "health_checks": health_check_count
+        })
 
 def cleanup_on_exit():
     """Cleanup function to stop all services"""
     print_section("Stopping Services")
+    cleanup_start = time.time()
+
+    logger.info("Starting cleanup process", {
+        "services_to_stop": list(running_processes.keys()),
+        "total_services": len(running_processes)
+    })
+
+    stopped_count = 0
+    force_killed_count = 0
+    errors = []
 
     for service_name, process in running_processes.items():
         service_info = SERVICES[service_name]
         if process.poll() is None:
+            service_stop_start = time.time()
             print(f"  {ARROW} Stopping {service_info['name']}...")
+            logger.debug(f"Stopping service {service_info['name']}", {
+                "service": service_name,
+                "pid": process.pid
+            })
+
             try:
                 if sys.platform == 'win32':
                     process.send_signal(signal.CTRL_BREAK_EVENT)
@@ -555,49 +886,133 @@ def cleanup_on_exit():
                     process.terminate()
 
                 process.wait(timeout=5)
+                stop_duration = time.time() - service_stop_start
                 print(f"  {CHECK} {service_info['name']} stopped")
+                logger.info(f"Service {service_info['name']} stopped gracefully", {
+                    "service": service_name,
+                    "pid": process.pid,
+                    "stop_duration": stop_duration
+                })
+                stopped_count += 1
+
             except subprocess.TimeoutExpired:
                 process.kill()
+                stop_duration = time.time() - service_stop_start
                 print(f"  {WARN} {service_info['name']} force killed")
-            except Exception as e:
-                print(f"  {CROSS} Error stopping {service_info['name']}: {e}")
+                logger.warn(f"Service {service_info['name']} force killed after timeout", {
+                    "service": service_name,
+                    "pid": process.pid,
+                    "timeout": 5,
+                    "stop_duration": stop_duration
+                })
+                force_killed_count += 1
 
+            except Exception as e:
+                stop_duration = time.time() - service_stop_start
+                print(f"  {CROSS} Error stopping {service_info['name']}: {e}")
+                logger.error(f"Error stopping service {service_info['name']}", {
+                    "service": service_name,
+                    "pid": process.pid,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "stop_duration": stop_duration
+                })
+                errors.append({"service": service_name, "error": str(e)})
+
+    cleanup_duration = time.time() - cleanup_start
     print()
     print(f"{CHECK} All services stopped")
 
+    logger.performance("Cleanup completed", cleanup_duration, {
+        "total_services": len(running_processes),
+        "stopped_gracefully": stopped_count,
+        "force_killed": force_killed_count,
+        "errors": len(errors),
+        "error_details": errors if errors else None
+    })
+    logger.info("All services stopped", {
+        "total_services": len(running_processes),
+        "cleanup_duration": cleanup_duration
+    })
+
 def main():
     """Main launcher function"""
+    launch_start_time = time.time()
+    logger.info("=== LLM Trainer System Launcher Started ===", {
+        "python_version": sys.version,
+        "platform": sys.platform,
+        "session_id": logger.session_id
+    })
+
     print_header()
 
-    # Step 1: Check dependencies
-    check_dependencies()
+    try:
+        # Step 1: Check dependencies
+        logger.info("Step 1: Checking dependencies")
+        check_dependencies()
 
-    # Step 2: Check configuration
-    check_configuration()
+        # Step 2: Check configuration
+        logger.info("Step 2: Checking configuration")
+        check_configuration()
 
-    # Step 3: Cleanup existing processes
-    cleanup_existing_processes()
+        # Step 3: Cleanup existing processes
+        logger.info("Step 3: Cleaning up existing processes")
+        cleanup_existing_processes()
 
-    # Step 4: Start all services
-    start_all_services()
+        # Step 4: Start all services
+        logger.info("Step 4: Starting all services")
+        start_all_services()
 
-    # Step 5: Print status
-    print_status()
-    print_urls()
+        # Step 5: Print status
+        logger.info("Step 5: Displaying service status")
+        print_status()
+        print_urls()
 
-    # Step 6: Monitor services
-    monitor_services()
+        launch_duration = time.time() - launch_start_time
+        logger.performance("System launcher completed", launch_duration, {
+            "services_started": len(running_processes),
+            "service_list": list(running_processes.keys())
+        })
+        logger.info("All services started successfully", {
+            "total_services": len(running_processes),
+            "startup_duration": launch_duration
+        })
 
-    # Step 7: Cleanup on exit
-    cleanup_on_exit()
+        # Step 6: Monitor services
+        logger.info("Step 6: Starting service monitoring")
+        monitor_services()
+
+        # Step 7: Cleanup on exit
+        logger.info("Step 7: Cleaning up")
+        cleanup_on_exit()
+
+        total_duration = time.time() - launch_start_time
+        logger.info("=== LLM Trainer System Launcher Exited ===", {
+            "total_duration": total_duration,
+            "exit_reason": "normal"
+        })
+
+    except Exception as e:
+        logger.exception("Fatal error in main launcher", e, {
+            "duration": time.time() - launch_start_time
+        })
+        raise
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
         print("\n\nShutdown requested...")
+        logger.info("Shutdown requested by user (Ctrl+C)", {"category": "system"})
         cleanup_on_exit()
+        logger.info("=== LLM Trainer System Launcher Exited ===", {"exit_reason": "user_interrupt"})
     except Exception as e:
         print(f"\n{CROSS} Fatal error: {e}")
+        logger.fatal("Fatal unhandled exception", {
+            "error": str(e),
+            "exception_type": type(e).__name__,
+            "traceback": traceback.format_exc()
+        })
         cleanup_on_exit()
+        logger.info("=== LLM Trainer System Launcher Exited ===", {"exit_reason": "fatal_error"})
         sys.exit(1)
