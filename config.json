@@ -26,7 +26,7 @@
     "What are your thoughts on language and communication?"
   ],
   "llm_server_port": 8030,
-  "openrouter_api_key": "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",
+  "openrouter_api_key": "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",
   "sms_server_port": 8040,
   "twilio_account_sid": "",
   "twilio_auth_token": "",
