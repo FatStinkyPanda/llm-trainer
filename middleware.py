@@ -557,6 +557,12 @@ IMPORTANT: You are NOT CEREBRUM. You are talking WITH CEREBRUM to help them lear
         logger.info("Training loop stopped")
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for service monitoring"""
+    return {"status": "ok"}
+
+
 @app.get("/")
 async def root():
     """Serve web interface"""

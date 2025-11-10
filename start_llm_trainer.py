@@ -176,7 +176,7 @@ SERVICES = {
         'name': 'Middleware Service',
         'required': True,
         'startup_delay': 3,
-        'health_check': lambda port: check_http_service(f"http://localhost:{port}/api/status")
+        'health_check': lambda port: check_http_service(f"http://localhost:{port}/health")
     },
     'telegram': {
         'script': 'telegram_server.py',
