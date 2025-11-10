@@ -343,8 +343,22 @@ async function updateAllStatus() {
 }
 
 async function updateServiceStatus() {
+    // First, get the actual LLM server port from config
+    let llmPort = 8030; // Default
+    try {
+        const configResponse = await fetch(`${API_BASE}/api/config`, {
+            signal: AbortSignal.timeout(2000)
+        });
+        if (configResponse.ok) {
+            const config = await configResponse.json();
+            llmPort = config.llm_server_port || 8030;
+        }
+    } catch (error) {
+        console.log('Using default LLM port 8030 (config fetch failed)');
+    }
+
     const services = [
-        { id: 'llm', port: 8030, name: 'LLM Server', endpoint: '/' },
+        { id: 'llm', port: llmPort, name: 'LLM Server', endpoint: '/' },
         { id: 'middleware', port: 8032, name: 'Middleware', endpoint: '/api/status' },
         { id: 'telegram', port: 8041, name: 'Telegram Bot', endpoint: '/telegram/status' },
         { id: 'sms', port: 8040, name: 'SMS Server', endpoint: '/sms/status' },
@@ -359,6 +373,8 @@ async function updateServiceStatus() {
             });
 
             const badge = document.getElementById(`${service.id}-status`);
+            const portDisplay = document.getElementById(`${service.id}-port`);
+
             if (response.ok) {
                 badge.textContent = 'Running';
                 badge.className = 'status-badge running';
@@ -366,10 +382,22 @@ async function updateServiceStatus() {
                 badge.textContent = 'Error';
                 badge.className = 'status-badge warning';
             }
+
+            // Update port display
+            if (portDisplay) {
+                portDisplay.textContent = service.port;
+            }
         } catch (error) {
             const badge = document.getElementById(`${service.id}-status`);
+            const portDisplay = document.getElementById(`${service.id}-port`);
+
             badge.textContent = 'Stopped';
             badge.className = 'status-badge stopped';
+
+            // Still update port display even if stopped
+            if (portDisplay) {
+                portDisplay.textContent = service.port;
+            }
         }
     }
 }
