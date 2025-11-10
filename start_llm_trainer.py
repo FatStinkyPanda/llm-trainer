@@ -213,8 +213,12 @@ def print_section(title: str):
     print(title)
     print("-" * 70)
 
-def check_http_service(url: str, timeout: int = 2) -> bool:
-    """Check if HTTP service is responding"""
+def check_http_service(url: str, timeout: int = 5) -> bool:
+    """Check if HTTP service is responding
+
+    Uses 5 second timeout to allow services time to fully start up.
+    Returns True if service responds with any HTTP status (even 404).
+    """
     try:
         response = requests.get(url, timeout=timeout)
         return response.status_code in [200, 404]  # 404 is ok, means server is running
@@ -694,6 +698,27 @@ def start_all_services():
         process = start_service(service_name, service_info)
         if process:
             running_processes[service_name] = process
+
+            # Special handling for LLM server: reload config to get dynamically assigned port
+            if service_name == 'llm_server':
+                logger.debug("Reloading config after LLM server startup to get assigned port")
+                time.sleep(2)  # Give LLM server time to write config
+                try:
+                    with open('config.json', 'r') as f:
+                        updated_config = json.load(f)
+                    new_port = updated_config.get('llm_server_port')
+                    if new_port and new_port != service_info['port']:
+                        logger.info(f"LLM server port updated: {service_info['port']} -> {new_port}", {
+                            "old_port": service_info['port'],
+                            "new_port": new_port
+                        })
+                        # Update global config and service info
+                        config['llm_server_port'] = new_port
+                        SERVICES['llm_server']['port'] = new_port
+                        print(f"  {ARROW} Port updated to {new_port}")
+                except Exception as e:
+                    logger.error(f"Failed to reload config after LLM server start: {e}")
+
         elif service_info['required']:
             print(f"  {CROSS} Required service {service_info['name']} failed to start - exiting")
             cleanup_on_exit()

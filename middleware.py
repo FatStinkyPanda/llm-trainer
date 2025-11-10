@@ -55,7 +55,7 @@ if sys.platform == 'win32':
 load_dotenv()
 
 # Load configuration
-# Reload to get dynamically assigned LLM server port
+# Initial load to get base config
 with open('config.json', 'r') as f:
     config = json.load(f)
 
@@ -63,18 +63,26 @@ with open('config.json', 'r') as f:
 if os.getenv('OPENROUTER_API_KEY'):
     config['openrouter_api_key'] = os.getenv('OPENROUTER_API_KEY')
 
-# Wait for LLM server port to be set (if not yet set)
+# Wait for LLM server to update its dynamically assigned port
+# The LLM server may select a different port from the range if the default is busy
 import time
-max_wait = 30
-waited = 0
-while 'llm_server_port' not in config and waited < max_wait:
-    time.sleep(1)
-    with open('config.json', 'r') as f:
-        config = json.load(f)
-    # Re-apply environment override after reload
-    if os.getenv('OPENROUTER_API_KEY'):
-        config['openrouter_api_key'] = os.getenv('OPENROUTER_API_KEY')
-    waited += 1
+initial_port = config.get('llm_server_port', 8030)
+print(f"[MIDDLEWARE] Initial LLM server port from config: {initial_port}")
+print(f"[MIDDLEWARE] Waiting 3 seconds for LLM server to update port if needed...")
+time.sleep(3)
+
+# Reload config to get potentially updated LLM server port
+with open('config.json', 'r') as f:
+    config = json.load(f)
+# Re-apply environment override after reload
+if os.getenv('OPENROUTER_API_KEY'):
+    config['openrouter_api_key'] = os.getenv('OPENROUTER_API_KEY')
+
+final_port = config.get('llm_server_port', 8030)
+if final_port != initial_port:
+    print(f"[MIDDLEWARE] LLM server port updated: {initial_port} -> {final_port}")
+else:
+    print(f"[MIDDLEWARE] LLM server port: {final_port}")
 
 # Configure logging to both console and file with reduced verbosity for asyncio
 logging.basicConfig(
