@@ -16,14 +16,10 @@ import sys
 CHECK = "[OK]"
 CROSS = "[X]"
 
-# Check dependencies on startup
-try:
-    from check_dependencies import check_and_install_dependencies
-    if not check_and_install_dependencies(auto_install=True):
-        print(f"{CROSS} Failed to install dependencies. Exiting.")
-        sys.exit(1)
-except ImportError:
-    print("Warning: Dependency checker not available")
+# Skip dependency check during service startup to avoid blocking
+# Dependencies should be installed via requirements.txt beforehand
+# This allows the service to start quickly for health checks
+print(f"{CHECK} Skipping dependency check (install via requirements.txt if needed)")
 
 import json
 import logging
@@ -48,8 +44,16 @@ from dotenv import load_dotenv
 # Suppress Windows asyncio proactor warnings
 if sys.platform == 'win32':
     # Suppress ConnectionResetError in asyncio proactor
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    # Note: WindowsSelectorEventLoopPolicy deprecated in Python 3.14+
+    # Using try/except for compatibility with older and newer Python versions
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except (AttributeError, DeprecationWarning):
+        # Python 3.14+ - default event loop policy is already appropriate
+        pass
     warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*proactor.*")
+    warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*WindowsSelectorEventLoopPolicy.*")
+    warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*set_event_loop_policy.*")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -115,23 +119,14 @@ def create_resilient_session() -> requests.Session:
 # Global session for connection pooling
 http_session = create_resilient_session()
 
-app = FastAPI(title="CEREBRUM-LLM Middleware", version="1.0.0")
+# Use lifespan context manager for FastAPI 0.93+ (avoids deprecation warning)
+from contextlib import asynccontextmanager
 
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Startup event to reload config after LLM server is fully started
-@app.on_event("startup")
-async def startup_event():
-    """Reload config on startup to get dynamically assigned LLM server port"""
-    await asyncio.sleep(3)  # Wait for LLM server to update config if needed
-
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup/shutdown events"""
+    # Startup: Reload config to get dynamically assigned LLM server port
+    # Non-blocking startup - don't wait for other services
     try:
         with open('config.json', 'r') as f:
             updated_config = json.load(f)
@@ -152,6 +147,25 @@ async def startup_event():
             print(f"[MIDDLEWARE] LLM server port confirmed: {new_port}")
     except Exception as e:
         logger.error(f"Failed to reload config on startup: {e}")
+
+    print(f"[MIDDLEWARE] Middleware startup complete - ready to accept requests")
+
+    yield  # Server is now running
+
+    # Shutdown logic here if needed
+    print(f"[MIDDLEWARE] Middleware shutting down")
+
+# Create FastAPI app with lifespan support (replaces @app.on_event("startup"))
+app = FastAPI(title="CEREBRUM-LLM Middleware", version="1.0.0", lifespan=lifespan)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Models
 class TrainingStartRequest(BaseModel):
@@ -193,28 +207,50 @@ training_thread: Optional[threading.Thread] = None
 
 
 def check_cerebrum_connection() -> bool:
-    """Check if CEREBRUM is accessible with reduced timeout"""
+    """Check if CEREBRUM is accessible with reduced timeout
+
+    Uses a simple request without retries for fast failure detection.
+    """
     try:
-        response = http_session.get(
+        # Use requests.get directly (no retries) for fast health checks
+        response = requests.get(
             f"{config['cerebrum_url']}/api/status",
-            timeout=2  # Reduced timeout for health checks
+            timeout=1  # 1 second timeout for fast failure
         )
         return response.status_code == 200
-    except Exception:
-        # Silent failure - CEREBRUM not available
+    except requests.exceptions.Timeout:
+        # Timeout - CEREBRUM not available
+        return False
+    except requests.exceptions.ConnectionError:
+        # Connection error - CEREBRUM not running
+        return False
+    except Exception as e:
+        # Any other error - log and return False
+        logger.debug(f"CEREBRUM connection check failed: {e}")
         return False
 
 
 def check_llm_connection() -> bool:
-    """Check if LLM server is accessible with reduced timeout"""
+    """Check if LLM server is accessible with reduced timeout
+
+    Uses a simple request without retries for fast failure detection.
+    """
     try:
-        response = http_session.get(
+        # Use requests.get directly (no retries) for fast health checks
+        response = requests.get(
             f"http://localhost:{config['llm_server_port']}/",
-            timeout=2  # Reduced timeout for health checks
+            timeout=1  # 1 second timeout for fast failure
         )
         return response.status_code == 200
-    except Exception:
-        # Silent failure - LLM not available
+    except requests.exceptions.Timeout:
+        # Timeout - LLM not available
+        return False
+    except requests.exceptions.ConnectionError:
+        # Connection error - LLM not running
+        return False
+    except Exception as e:
+        # Any other error - log and return False
+        logger.debug(f"LLM connection check failed: {e}")
         return False
 
 
@@ -592,13 +628,12 @@ async def serve_js():
 
 @app.get("/api/status")
 async def get_status():
-    """Get middleware status"""
+    """Get middleware status - lightweight and fast for health checks"""
+    # Don't make blocking connection checks here - they block the event loop
+    # The middleware itself is running if this endpoint responds
     return {
-        "middleware": "running",
-        "cerebrum_url": config['cerebrum_url'],
-        "llm_port": config['llm_server_port'],
-        "cerebrum_connected": check_cerebrum_connection(),
-        "llm_connected": check_llm_connection(),
+        "status": "running",
+        "service": "middleware",
         "timestamp": datetime.now().isoformat()
     }
 
@@ -609,18 +644,21 @@ async def get_cerebrum_status():
     try:
         response = http_session.get(
             f"{config['cerebrum_url']}/api/status",
-            timeout=3  # Reduced timeout for status checks
+            timeout=1  # 1 second timeout for fast failure
         )
         if response.status_code == 200:
             return response.json()
         else:
             raise HTTPException(status_code=response.status_code, detail="CEREBRUM unreachable")
     except requests.exceptions.Timeout:
-        raise HTTPException(status_code=504, detail="CEREBRUM request timed out")
+        raise HTTPException(status_code=503, detail="CEREBRUM not responding (service not available)")
     except requests.exceptions.ConnectionError:
-        raise HTTPException(status_code=503, detail="Cannot connect to CEREBRUM")
+        raise HTTPException(status_code=503, detail="CEREBRUM not running (service not started)")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"CEREBRUM error: {str(e)}")
+        logger.debug(f"CEREBRUM status check error: {e}")
+        raise HTTPException(status_code=503, detail="CEREBRUM not available")
 
 
 @app.get("/api/llm/status")
@@ -629,18 +667,69 @@ async def get_llm_status():
     try:
         response = http_session.get(
             f"http://localhost:{config['llm_server_port']}/api/status",
-            timeout=3  # Reduced timeout for status checks
+            timeout=1  # 1 second timeout for fast failure
         )
         if response.status_code == 200:
             return response.json()
         else:
             raise HTTPException(status_code=response.status_code, detail="LLM server unreachable")
     except requests.exceptions.Timeout:
-        raise HTTPException(status_code=504, detail="LLM server request timed out")
+        raise HTTPException(status_code=503, detail="LLM server not responding")
     except requests.exceptions.ConnectionError:
-        raise HTTPException(status_code=503, detail="Cannot connect to LLM server")
+        raise HTTPException(status_code=503, detail="LLM server not running")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"LLM server error: {str(e)}")
+        logger.debug(f"LLM status check error: {e}")
+        raise HTTPException(status_code=503, detail="LLM server not available")
+
+
+@app.get("/telegram/status")
+async def get_telegram_status():
+    """Proxy to Telegram server status endpoint"""
+    try:
+        telegram_port = config.get('telegram_server_port', 8041)
+        response = http_session.get(
+            f"http://localhost:{telegram_port}/telegram/status",
+            timeout=1  # 1 second timeout for fast failure
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(status_code=response.status_code, detail="Telegram server unreachable")
+    except requests.exceptions.Timeout:
+        raise HTTPException(status_code=503, detail="Telegram server not responding")
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(status_code=503, detail="Telegram server not running or not configured")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.debug(f"Telegram status check error: {e}")
+        raise HTTPException(status_code=503, detail="Telegram server not available")
+
+
+@app.get("/sms/status")
+async def get_sms_status():
+    """Proxy to SMS server status endpoint"""
+    try:
+        sms_port = config.get('sms_server_port', 8040)
+        response = http_session.get(
+            f"http://localhost:{sms_port}/sms/status",
+            timeout=1  # 1 second timeout for fast failure
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(status_code=response.status_code, detail="SMS server unreachable")
+    except requests.exceptions.Timeout:
+        raise HTTPException(status_code=503, detail="SMS server not responding")
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(status_code=503, detail="SMS server not running or not configured")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.debug(f"SMS status check error: {e}")
+        raise HTTPException(status_code=503, detail="SMS server not available")
 
 
 @app.get("/api/config")
@@ -664,6 +753,12 @@ async def get_config():
 
             # System Configuration
             "cerebrum_url": current_config.get('cerebrum_url', 'http://localhost:8000'),
+
+            # Port Configuration (for web interface)
+            "llm_server_port": current_config.get('llm_server_port', 8030),
+            "middleware_port": current_config.get('middleware_port', 8032),
+            "telegram_server_port": current_config.get('telegram_server_port', 8041),
+            "sms_server_port": current_config.get('sms_server_port', 8040),
 
             # Messaging Configuration
             "telegram_bot_token": current_config.get('telegram_bot_token', ''),
@@ -877,21 +972,13 @@ def run_server(host: str = "0.0.0.0", port: int = None):
     print(f"API Docs: http://{host}:{port}/docs")
     print("="*70)
     print("")
-
-    # Test connections
-    if check_cerebrum_connection():
-        print(f"{CHECK} CEREBRUM is accessible")
-    else:
-        print(f"{CROSS} WARNING: Cannot connect to CEREBRUM")
-        print(f"  Make sure CEREBRUM is running at {config['cerebrum_url']}")
-
-    if check_llm_connection():
-        print(f"{CHECK} LLM Server is accessible")
-    else:
-        print(f"{CROSS} WARNING: Cannot connect to LLM Server")
-        print(f"  Make sure LLM server is running on port {config['llm_server_port']}")
-
+    print(f"[INFO] Middleware starting - service connections will be checked on-demand")
+    print(f"[INFO] CEREBRUM (optional): {config['cerebrum_url']}")
+    print(f"[INFO] LLM Server: http://localhost:{config['llm_server_port']}")
     print("")
+
+    # Skip startup connection tests - services may still be starting
+    # The web interface will check status dynamically via proxy endpoints
 
     uvicorn.run(app, host=host, port=port)
 

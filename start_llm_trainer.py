@@ -572,10 +572,12 @@ def start_service(service_name: str, service_info: Dict) -> Optional[subprocess.
             "service": service_name
         })
 
+        # Don't capture stdout/stderr to avoid pipe buffer deadlock
+        # Services write their own logs, and capturing causes crashes when buffers fill
         process = subprocess.Popen(
             [sys.executable, script],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=None,  # Let output go to console
+            stderr=None,  # Let errors go to console
             text=True,
             bufsize=1,
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
@@ -597,14 +599,12 @@ def start_service(service_name: str, service_info: Dict) -> Optional[subprocess.
         # Check if process is still running
         if process.poll() is not None:
             print(f"  {CROSS} {name} failed to start")
-            # Capture error output
-            stdout, stderr = process.communicate(timeout=1)
+            # Log failure (output already went to console, not captured)
             logger.error(f"Service {name} failed to start", {
                 "service": service_name,
                 "pid": process.pid,
                 "return_code": process.returncode,
-                "stdout": stdout[:500] if stdout else None,
-                "stderr": stderr[:500] if stderr else None,
+                "note": "Check console output above for error details",
                 "duration": time.time() - start_time
             })
             return None

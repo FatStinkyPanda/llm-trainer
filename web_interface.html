@@ -270,6 +270,17 @@
             color: var(--warning);
         }
 
+        .status-badge.loading {
+            background: rgba(139, 92, 246, 0.2);
+            color: var(--secondary);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
         .action-buttons {
             display: flex;
             gap: 12px;

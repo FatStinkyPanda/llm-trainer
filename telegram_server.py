@@ -471,33 +471,13 @@ async def telegram_webhook(request: Request):
 
 @app.get("/telegram/status")
 async def get_telegram_status():
-    """Get Telegram bot status and statistics"""
-    user_count = db.get_user_count('telegram')
-    users = db.get_all_users('telegram')
-
-    bot_status = "disconnected"
-    bot_info = None
-
-    if telegram_service:
-        is_valid, message = telegram_service.validate_connection()
-        bot_status = "connected" if is_valid else f"error: {message}"
-        if is_valid:
-            bot_info = telegram_service.get_me()
-
+    """Get Telegram bot status - lightweight for health checks"""
+    # Return immediately without blocking database or network calls
+    # Full user list and bot validation are too slow for health checks
     return {
-        "bot_status": bot_status,
-        "bot_info": bot_info,
+        "status": "running",
         "polling_active": polling_active,
-        "total_users": user_count,
-        "users": [
-            {
-                "chat_id": user['user_id'],
-                "name": user['name'],
-                "username": user['username'],
-                "registered": user['created_at']
-            }
-            for user in users
-        ],
+        "service": "telegram",
         "timestamp": datetime.now().isoformat()
     }
 

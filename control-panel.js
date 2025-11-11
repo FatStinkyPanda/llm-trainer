@@ -1,21 +1,44 @@
 // LLM Trainer Control Panel JavaScript
 
-const MIDDLEWARE_PORT = 8032;
-const API_BASE = `http://127.0.0.1:${MIDDLEWARE_PORT}`;
+// Use relative URLs since page is served from middleware
+const API_BASE = '';
 
 // State
 let statusUpdateInterval = null;
 let currentTab = 'overview';
+let consecutiveErrors = 0;
+let serviceErrorCounts = {}; // Track consecutive errors per service
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    loadConfiguration();
-    updateAllStatus();
+    console.log('[Control Panel] Initializing...');
+
+    // Set all status badges to "Loading..." initially
+    setLoadingState();
+
+    // Load data with delays to avoid overwhelming the server
+    setTimeout(() => loadConfiguration(), 100);
+    setTimeout(() => updateAllStatus(), 300);
+
     setupEventListeners();
 
-    // Start status polling
-    statusUpdateInterval = setInterval(updateAllStatus, 3000);
+    // Start status polling after initial load
+    setTimeout(() => {
+        console.log('[Control Panel] Starting status polling...');
+        statusUpdateInterval = setInterval(updateAllStatus, 3000);
+    }, 1000);
 });
+
+function setLoadingState() {
+    const statusBadges = ['llm-status', 'middleware-status', 'telegram-status', 'sms-status', 'cerebrum-status'];
+    statusBadges.forEach(id => {
+        const badge = document.getElementById(id);
+        if (badge) {
+            badge.textContent = 'Loading...';
+            badge.className = 'status-badge loading';
+        }
+    });
+}
 
 function setupEventListeners() {
     // LLM source toggle
@@ -343,60 +366,127 @@ async function updateAllStatus() {
 }
 
 async function updateServiceStatus() {
-    // First, get the actual LLM server port from config
-    let llmPort = 8030; // Default
-    try {
-        const configResponse = await fetch(`${API_BASE}/api/config`, {
-            signal: AbortSignal.timeout(2000)
-        });
-        if (configResponse.ok) {
-            const config = await configResponse.json();
-            llmPort = config.llm_server_port || 8030;
-        }
-    } catch (error) {
-        console.log('Using default LLM port 8030 (config fetch failed)');
-    }
+    console.log('[updateServiceStatus] Starting status update...');
+
+    // Use middleware proxy endpoints to avoid CORS issues
+    // All requests go through the middleware which has proper CORS configured
 
     const services = [
-        { id: 'llm', port: llmPort, name: 'LLM Server', endpoint: '/' },
-        { id: 'middleware', port: 8032, name: 'Middleware', endpoint: '/api/status' },
-        { id: 'telegram', port: 8041, name: 'Telegram Bot', endpoint: '/telegram/status' },
-        { id: 'sms', port: 8040, name: 'SMS Server', endpoint: '/sms/status' },
-        { id: 'cerebrum', port: 8000, name: 'CEREBRUM', endpoint: '/api/status' }
+        { id: 'llm', name: 'LLM Server', proxyEndpoint: '/api/llm/status', defaultPort: 8030 },
+        { id: 'middleware', name: 'Middleware', proxyEndpoint: '/api/status', defaultPort: 8032 },
+        { id: 'telegram', name: 'Telegram Bot', proxyEndpoint: '/telegram/status', defaultPort: 8041, optional: true },
+        { id: 'sms', name: 'SMS Server', proxyEndpoint: '/sms/status', defaultPort: 8040, optional: true },
+        { id: 'cerebrum', name: 'CEREBRUM', proxyEndpoint: '/api/cerebrum/status', defaultPort: 8000, optional: true }
     ];
 
-    for (const service of services) {
-        try {
-            const response = await fetch(`http://localhost:${service.port}${service.endpoint}`, {
-                method: 'GET',
-                signal: AbortSignal.timeout(2000)
-            });
+    // Get actual port configuration
+    let config = null;
+    try {
+        console.log('[updateServiceStatus] Fetching config from:', `${API_BASE}/api/config`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+            console.warn('[updateServiceStatus] Config fetch timeout (2s)');
+            controller.abort();
+        }, 2000);
 
-            const badge = document.getElementById(`${service.id}-status`);
-            const portDisplay = document.getElementById(`${service.id}-port`);
+        const configResponse = await fetch(`${API_BASE}/api/config`, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        console.log('[updateServiceStatus] Config response status:', configResponse.status);
+        if (configResponse.ok) {
+            config = await configResponse.json();
+            console.log('[Status] Config loaded:', config);
+        } else {
+            console.warn('[updateServiceStatus] Config response not OK:', configResponse.status, configResponse.statusText);
+        }
+    } catch (error) {
+        console.error('[Status] Config fetch failed:', error.name, error.message);
+    }
+
+    for (const service of services) {
+        const badge = document.getElementById(`${service.id}-status`);
+        const portDisplay = document.getElementById(`${service.id}-port`);
+
+        // Determine actual port from config
+        let port = service.defaultPort;
+        if (config) {
+            if (service.id === 'llm') port = config.llm_server_port || port;
+            else if (service.id === 'middleware') port = config.middleware_port || port;
+            else if (service.id === 'telegram') port = config.telegram_server_port || port;
+            else if (service.id === 'sms') port = config.sms_server_port || port;
+            else if (service.id === 'cerebrum') port = 8000; // CEREBRUM is always on 8000
+        }
+
+        console.log(`[updateServiceStatus] Checking ${service.name} at ${API_BASE}${service.proxyEndpoint}`);
+
+        try {
+            // Use middleware proxy endpoints to avoid CORS
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+                console.warn(`[updateServiceStatus] ${service.name} timeout (3s)`);
+                controller.abort();
+            }, 3000);
+
+            const response = await fetch(`${API_BASE}${service.proxyEndpoint}`, {
+                method: 'GET',
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            console.log(`[updateServiceStatus] ${service.name} response:`, response.status, response.statusText);
 
             if (response.ok) {
                 badge.textContent = 'Running';
                 badge.className = 'status-badge running';
+                console.log(`[Status] ${service.name}: Running ✓`);
+                serviceErrorCounts[service.id] = 0; // Reset error count on success
+            } else if (response.status === 502 || response.status === 503 || response.status === 504) {
+                // Service unreachable through proxy - but could be transient
+                // Only mark as stopped after 2 consecutive failures
+                serviceErrorCounts[service.id] = (serviceErrorCounts[service.id] || 0) + 1;
+
+                if (serviceErrorCounts[service.id] >= 2) {
+                    badge.textContent = 'Stopped';
+                    badge.className = 'status-badge stopped';
+                    console.log(`[Status] ${service.name}: Stopped after ${serviceErrorCounts[service.id]} failures (${response.status})`);
+                } else {
+                    // First failure - keep previous status but log warning
+                    console.warn(`[Status] ${service.name}: Transient failure (${response.status}), attempt ${serviceErrorCounts[service.id]}/2`);
+                }
             } else {
                 badge.textContent = 'Error';
                 badge.className = 'status-badge warning';
+                console.warn(`[Status] ${service.name}: Error ${response.status}`);
+                serviceErrorCounts[service.id] = (serviceErrorCounts[service.id] || 0) + 1;
             }
 
-            // Update port display
             if (portDisplay) {
-                portDisplay.textContent = service.port;
+                portDisplay.textContent = port;
             }
+
+            consecutiveErrors = 0; // Reset error counter on success
         } catch (error) {
-            const badge = document.getElementById(`${service.id}-status`);
-            const portDisplay = document.getElementById(`${service.id}-port`);
+            // Network error or timeout - could be transient
+            // Only mark as stopped after 2 consecutive failures
+            serviceErrorCounts[service.id] = (serviceErrorCounts[service.id] || 0) + 1;
 
-            badge.textContent = 'Stopped';
-            badge.className = 'status-badge stopped';
+            console.error(`[updateServiceStatus] ${service.name} fetch error (attempt ${serviceErrorCounts[service.id]}/2):`, {
+                name: error.name,
+                message: error.message
+            });
 
-            // Still update port display even if stopped
+            if (serviceErrorCounts[service.id] >= 2) {
+                badge.textContent = service.optional ? 'Not Configured' : 'Stopped';
+                badge.className = 'status-badge stopped';
+            } else {
+                // First failure - keep previous status
+                console.warn(`[Status] ${service.name}: Transient error, keeping previous status`);
+            }
+
             if (portDisplay) {
-                portDisplay.textContent = service.port;
+                portDisplay.textContent = port;
             }
         }
     }

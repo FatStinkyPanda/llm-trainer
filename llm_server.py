@@ -15,14 +15,10 @@ import sys
 CHECK = "[OK]"
 CROSS = "[X]"
 
-# Check dependencies on startup
-try:
-    from check_dependencies import check_and_install_dependencies
-    if not check_and_install_dependencies(auto_install=True):
-        print(f"{CROSS} Failed to install dependencies. Exiting.")
-        sys.exit(1)
-except ImportError:
-    print("Warning: Dependency checker not available")
+# Skip dependency check during service startup to avoid blocking
+# Dependencies should be installed via requirements.txt beforehand
+# This allows the service to start quickly for health checks
+print(f"{CHECK} Skipping dependency check (install via requirements.txt if needed)")
 
 import json
 import logging
@@ -51,17 +47,10 @@ with open('config.json', 'r') as f:
 if os.getenv('OPENROUTER_API_KEY'):
     config['openrouter_api_key'] = os.getenv('OPENROUTER_API_KEY')
 
-# Find free port in configured range
-port_range = config.get('llm_server_port_range', [8030, 8035])
-LLM_SERVER_PORT = find_free_port(port_range[0], port_range[1])
-
-if LLM_SERVER_PORT is None:
-    raise RuntimeError(f"No free port available in range {port_range[0]}-{port_range[1]}")
-
-# Save the selected port for other services to use
-config['llm_server_port'] = LLM_SERVER_PORT
-with open('config.json', 'w') as f:
-    json.dump(config, f, indent=2)
+# Use configured port directly - don't search for free ports during import
+# This prevents blocking file I/O that hangs the service
+LLM_SERVER_PORT = config.get('llm_server_port', 8030)
+print(f"[LLM-SERVER] Using port: {LLM_SERVER_PORT}")
 
 # Configure logging
 logging.basicConfig(
@@ -111,7 +100,7 @@ conversation_contexts: Dict[str, List[Dict[str, str]]] = {}
 def check_ollama_connection() -> bool:
     """Check if Ollama is running and accessible"""
     try:
-        response = requests.get(f"{config['ollama_url']}/api/tags", timeout=5)
+        response = requests.get(f"{config['ollama_url']}/api/tags", timeout=0.5)
         return response.status_code == 200
     except:
         return False
@@ -338,26 +327,13 @@ async def chat(request: ChatRequest):
 
 @app.get("/api/status")
 async def get_status():
-    """Get detailed server status"""
-    ollama_connected = check_ollama_connection()
-
-    # Get available models from Ollama
-    models = []
-    if ollama_connected:
-        try:
-            response = requests.get(f"{config['ollama_url']}/api/tags", timeout=5)
-            if response.status_code == 200:
-                data = response.json()
-                models = [m['name'] for m in data.get('models', [])]
-        except:
-            pass
-
+    """Get detailed server status - lightweight and fast"""
+    # Skip Ollama connection check to keep this endpoint fast and non-blocking
+    # The server can use OpenRouter or Ollama, so Ollama status isn't critical
     return {
-        "server": "running",
-        "ollama_url": config['ollama_url'],
-        "ollama_connected": ollama_connected,
-        "configured_model": config['ollama_model'],
-        "available_models": models,
+        "status": "running",
+        "llm_source": config.get('llm_source', 'ollama'),
+        "configured_model": config.get('openrouter_model') if config.get('llm_source') == 'openrouter' else config.get('ollama_model'),
         "timestamp": datetime.now().isoformat()
     }
 
@@ -377,7 +353,7 @@ def run_server(host: str = "0.0.0.0", port: int = None):
     print("="*70, flush=True)
     print("LLM Server (Isolated from CEREBRUM)", flush=True)
     print("="*70, flush=True)
-    print(f"Port Range: {port_range[0]}-{port_range[1]}", flush=True)
+    print(f"Port: {LLM_SERVER_PORT}", flush=True)
     print(f"Selected Port: {port}", flush=True)
     print(f"Server: http://{host}:{port}", flush=True)
     print(f"Ollama URL: {config['ollama_url']}", flush=True)
