@@ -640,9 +640,10 @@ async def get_status():
 
 @app.get("/api/cerebrum/status")
 async def get_cerebrum_status():
-    """Proxy to CEREBRUM status endpoint with resilient connection"""
+    """Proxy to CEREBRUM status endpoint with fast failure (no retries)"""
     try:
-        response = http_session.get(
+        # Use requests.get directly (no retry policy) for fast health checks
+        response = requests.get(
             f"{config['cerebrum_url']}/api/status",
             timeout=1  # 1 second timeout for fast failure
         )
@@ -663,9 +664,10 @@ async def get_cerebrum_status():
 
 @app.get("/api/llm/status")
 async def get_llm_status():
-    """Proxy to LLM server status endpoint with resilient connection"""
+    """Proxy to LLM server status endpoint with fast failure (no retries)"""
     try:
-        response = http_session.get(
+        # Use requests.get directly (no retry policy) for fast health checks
+        response = requests.get(
             f"http://localhost:{config['llm_server_port']}/api/status",
             timeout=1  # 1 second timeout for fast failure
         )
@@ -686,10 +688,11 @@ async def get_llm_status():
 
 @app.get("/telegram/status")
 async def get_telegram_status():
-    """Proxy to Telegram server status endpoint"""
+    """Proxy to Telegram server status endpoint with fast failure (no retries)"""
     try:
         telegram_port = config.get('telegram_server_port', 8041)
-        response = http_session.get(
+        # Use requests.get directly (no retry policy) for fast health checks
+        response = requests.get(
             f"http://localhost:{telegram_port}/telegram/status",
             timeout=1  # 1 second timeout for fast failure
         )
@@ -710,10 +713,11 @@ async def get_telegram_status():
 
 @app.get("/sms/status")
 async def get_sms_status():
-    """Proxy to SMS server status endpoint"""
+    """Proxy to SMS server status endpoint with fast failure (no retries)"""
     try:
         sms_port = config.get('sms_server_port', 8040)
-        response = http_session.get(
+        # Use requests.get directly (no retry policy) for fast health checks
+        response = requests.get(
             f"http://localhost:{sms_port}/sms/status",
             timeout=1  # 1 second timeout for fast failure
         )
