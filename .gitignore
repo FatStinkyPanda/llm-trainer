@@ -43,6 +43,4 @@ training_logs/
 .DS_Store
 Thumbs.db
 
-# OpenMemory
-.openmemory
 launcher_mcp_logs.jsonl
